@@ -40,7 +40,8 @@ libtarget_la_SOURCES = \
 	dsp563xx.c \
 	dsp563xx_once.c \
 	dsp5680xx.c \
-	hla_target.c
+	hla_target.c \
+	$(LEON_SRC)
 
 TARGET_CORE_SRC = \
 	algorithm.c \
@@ -133,6 +134,12 @@ INTEL_IA32_SRC = \
 	lakemont.c \
 	x86_32_common.c
 
+LEON_SRC = \
+	leon.c \
+	leon_jtag.c \
+	leon_regs.c \
+	leon_regdesc.c
+
 noinst_HEADERS = \
 	algorithm.h \
 	arm.h \
@@ -204,7 +211,10 @@ noinst_HEADERS = \
 	nds32_v3m.h \
 	nds32_aice.h \
 	lakemont.h \
-	x86_32_common.h
+	x86_32_common.h \
+	leon_hwdesc.h \
+	leon_regs.h \
+	leon.h
 
 ocddatadir = $(pkglibdir)
 nobase_dist_ocddata_DATA =

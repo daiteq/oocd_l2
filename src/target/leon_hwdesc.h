@@ -155,6 +155,22 @@
 #define LEON_DSU_CTRL_TRCDLYCNT_SHIFT     (20)    /* Trace buffer delay counter (DCNT). Note that the number of bits actually implemented depends on the size of the trace buffer. */
 #define LEON_DSU_CTRL_TRCDLYCNT_MASK      (0xfff<<LEON_DSU_CTRL_TRCDLYCNT_SHIFT)
 
+/* --- DSU Trace Buffer Control Register ------------------------------------ */
+#define LEON_DSU_TRCTRL_INST_IDX_SHIFT    (0)     /* Instruction trace index counter. */
+#define LEON_DSU_TRCTRL_INST_IDX_MASK     (0xFFF<<LEON_DSU_TRCTRL_INST_IDX_SHIFT)
+#define LEON_DSU_TRCTRL_AHB_IDX_SHIFT     (12)     /* AHB trace index counter. */
+#define LEON_DSU_TRCTRL_AHB_IDX_MASK      (0xFFF<<LEON_DSU_TRCTRL_AHB_IDX_SHIFT)
+#define LEON_DSU_TRCTRL_TI_SHIFT          (24)     /* Trace instruction enable. */
+#define LEON_DSU_TRCTRL_TI                (1<<LEON_DSU_TRCTRL_TI_SHIFT)
+#define LEON_DSU_TRCTRL_TA_SHIFT          (25)     /* Trace AHB enable. */
+#define LEON_DSU_TRCTRL_TA                (1<<LEON_DSU_TRCTRL_TA_SHIFT)
+#define LEON_DSU_TRCTRL_AF_SHIFT          (26)     /* AHB trace buffer freeze. If set, the AHB trace buffer will be frozen when the processor enters debug mode. */
+#define LEON_DSU_TRCTRL_AF                (1<<LEON_DSU_TRCTRL_AF_SHIFT)
+#define LEON_DSU_TRCTRL_SFILT_SHIFT       (27)     /* Slave filtering (SFILT) - Trace only accesses to addresses with a certain prefix (bits 31:28). 0 = trace all accesses, 1 = trace only accesses with prefix 0x8, 2 = trace only addresses with prefix 0xA, 3 = trace only addresses with prefix 0xB. (See documentation in next section. */
+#define LEON_DSU_TRCTRL_SFILT_MASK        (0x3<<LEON_DSU_TRCTRL_SFILT_SHIFT)
+#define LEON_DSU_TRCTRL_MFILT_SHIFT       (29)     /* Master filtering (MFILT) - Trace only accesses from AHB masters with a particular master index. 0 = trace accesses from all masters, X = 1..6 trace only accesses from master X, 7 = trace only accesses from master 0. (See documentation in next section. */
+#define LEON_DSU_TRCTRL_MFILT_MASK        (0x7<<LEON_DSU_TRCTRL_MFILT_SHIFT)
+
 /* --- DSU Breakpoint Address ----------------------------------------------- */
 #define LEON_DSU_BRKADDR_EX_SHIFT         (0)     /* Break on instruction */
 #define LEON_DSU_BRKADDR_EX               (1<<LEON_DSU_BRKADDR_EX_SHIFT)
@@ -170,21 +186,57 @@
 #define LEON_DSU_BRKMASK_BMASK_MASK       (0x3fffffff<<LEON_DSU_BRKMASK_BMASK_SHIFT)
 
 /* --- DSU Trace 96-127bit -------------------------------------------------- */
-#define LEON_DSU_TRCD_TIMETAG_SHIFT       (0)      /* The value of the time tag counter */
-#define LEON_DSU_TRCD_TIMETAG_MASK        (0x7fffffff<<LEON_DSU_TRCD_TIMETAG_SHIFT)
-#define LEON_DSU_TRCD_AHBBRKHIT_SHIFT     (31)     /* Set to ‘1’ if a DSU AHB breakpoint hit occurred */
-#define LEON_DSU_TRCD_AHBBRKHIT           (1<<LEON_DSU_TRCD_AHBBRKHIT_SHIFT)
+#define LEON_DSU_TRCD_AHB_BRKHIT_SHIFT        (31)     /* Set to ‘1’ if a DSU AHB breakpoint hit occurred */
+#define LEON_DSU_TRCD_AHB_BRKHIT              (1<<LEON_DSU_TRCD_AHB_BRKHIT_SHIFT)
+#define LEON_DSU_TRCD_AHB_TIMETAG_SHIFT       (0)      /* The value of the time tag counter */
+#define LEON_DSU_TRCD_AHB_TIMETAG_MASK        (0x3fffffff<<LEON_DSU_TRCD_AHB_TIMETAG_SHIFT)
+
+#define LEON_DSU_TRCD_INST_BRKHIT_SHIFT       (31)     /* Set to ‘1’ if a DSU instruction breakpoint hit occurred */
+#define LEON_DSU_TRCD_INST_BRKHIT             (1<<LEON_DSU_TRCD_INST_BRKHIT_SHIFT)
+#define LEON_DSU_TRCD_INST_MULTICYCLE_SHIFT   (30)     /* Set to ‘1’ if a DSU instruction breakpoint hit occurred */
+#define LEON_DSU_TRCD_INST_MULTICYCLE         (1<<LEON_DSU_TRCD_INST_MULTICYCLE_SHIFT)
+#define LEON_DSU_TRCD_INST_TIMETAG_SHIFT      (0)      /* The value of the time tag counter */
+#define LEON_DSU_TRCD_INST_TIMETAG_MASK       (0x3fffffff<<LEON_DSU_TRCD_INST_TIMETAG_SHIFT)
 /* --- DSU Trace 64-95bit --------------------------------------------------- */
-#define LEON_DSU_TRCC_IRL_SHIFT 95:92 /* Processor interrupt request input */
-#define LEON_DSU_TRCC_PIL_SHIFT 91:88 /* Processor interrupt level (psr.pil) */
-#define LEON_DSU_TRCC_TT_SHIFT  87:80 /* Trap type Processor trap type (psr.tt) */
-#define LEON_DSU_TRCC_HWRITE_SHIFT        (79) /* AHB HWRITE */
-//78:77 Htrans AHB HTRANS
-//76:74 Hsize AHB HSIZE
-//73:71 Hburst AHB HBURST
-//70:67 Hmaster AHB HMASTER
-//66 Hmastlock AHB HMASTLOCK
-//65:64 Hresp AHB HRESP
+#define LEON_DSU_TRCC_AHB_IRL_SHIFT           (28)     /* Processor interrupt request input */
+#define LEON_DSU_TRCC_AHB_IRL_MASK            (0xf<<LEON_DSU_TRCC_AHB_IRL_SHIFT)
+#define LEON_DSU_TRCC_AHB_PIL_SHIFT           (24)     /* Processor interrupt level (psr.pil) */
+#define LEON_DSU_TRCC_AHB_PIL_MASK            (0xf<<LEON_DSU_TRCC_AHB_PIL_SHIFT)
+#define LEON_DSU_TRCC_AHB_TT_SHIFT            (16)     /* Trap type Processor trap type (psr.tt) */
+#define LEON_DSU_TRCC_AHB_TT_MASK             (0xff<<LEON_DSU_TRCC_AHB_TT_SHIFT)
+#define LEON_DSU_TRCC_AHB_HWRITE_SHIFT        (15)     /* AHB HWRITE */
+#define LEON_DSU_TRCC_AHB_HWRITE              (1<<LEON_DSU_TRCC_AHB_HWRITE_SHIFT)
+#define LEON_DSU_TRCC_AHB_HTRANS_SHIFT        (13)     /* AHB HTRANS */
+#define LEON_DSU_TRCC_AHB_HTRANS_MASK         (0x3<<LEON_DSU_TRCC_AHB_HTRANS_SHIFT)
+#define LEON_DSU_TRCC_AHB_HSIZE_SHIFT         (10)     /* AHB HSIZE */
+#define LEON_DSU_TRCC_AHB_HSIZE_MASK          (0x7<<LEON_DSU_TRCC_AHB_HSIZE_SHIFT)
+#define LEON_DSU_TRCC_AHB_HBURST_SHIFT        (7)      /* AHB HBURST */
+#define LEON_DSU_TRCC_AHB_HBURST_MASK         (0x7<<LEON_DSU_TRCC_AHB_HBURST_SHIFT)
+#define LEON_DSU_TRCC_AHB_HMASTER_SHIFT       (3)      /* AHB HMASTER */
+#define LEON_DSU_TRCC_AHB_HMASTER_MASK        (0xf<<LEON_DSU_TRCC_AHB_HMASTER_SHIFT)
+#define LEON_DSU_TRCC_AHB_HMASTLOCK_SHIFT     (2)      /* AHB HMASTLOCK */
+#define LEON_DSU_TRCC_AHB_HMASTLOCK           (1<<LEON_DSU_TRCC_AHB_HMASTLOCK_SHIFT)
+#define LEON_DSU_TRCC_AHB_HRESP_SHIFT         (0)      /* AHB HRESP */
+#define LEON_DSU_TRCC_AHB_HRESP_MASK          (0x3<<LEON_DSU_TRCC_AHB_HRESP_SHIFT)
+
+#define LEON_DSU_TRCC_INST_LDSTPAR_SHIFT      (0)      /* Load/Store parameters - Instruction result, Store address or Store data */
+#define LEON_DSU_TRCC_INST_LDSTPAR_MASK       (0xffffffff<<LEON_DSU_TRCC_INST_LDSTPAR_SHIFT)
+/* --- DSU Trace 32-63bit --------------------------------------------------- */
+#define LEON_DSU_TRCB_AHB_DATA_SHIFT          (0)      /* AHB HRDATA or HWDATA */
+#define LEON_DSU_TRCB_AHB_DATA_MASK           (0xffffffff<<LEON_DSU_TRCB_AHB_DATA_SHIFT)
+
+#define LEON_DSU_TRCB_INST_PC_SHIFT           (0)      /* Program counter (2 lsb bits removed since they are always zero) */
+#define LEON_DSU_TRCB_INST_PC_MASK            (0xfffffffc<<LEON_DSU_TRCB_INST_PC_SHIFT)
+#define LEON_DSU_TRCB_INST_ITRAP_SHIFT        (1)      /* Set to ‘1’ if traced instruction trapped */
+#define LEON_DSU_TRCB_INST_ITRAP              (1<<LEON_DSU_TRCB_INST_ITRAP_SHIFT)
+#define LEON_DSU_TRCB_INST_PEMODE_SHIFT       (0)      /* Set to ‘1’ if the traced instruction caused processor error mode */
+#define LEON_DSU_TRCB_INST_PEMODE             (1<<LEON_DSU_TRCB_INST_PEMODE_SHIFT)
+/* --- DSU Trace 0-31bit --------------------------------------------------- */
+#define LEON_DSU_TRCA_AHB_ADDR_SHIFT          (0)      /* AHB HADDR */
+#define LEON_DSU_TRCA_AHB_ADDR_MASK           (0xffffffff<<LEON_DSU_TRCA_AHB_ADDR_SHIFT)
+
+#define LEON_DSU_TRCA_INST_OPCODE_SHIFT       (0)      /* Instruction opcode */
+#define LEON_DSU_TRCA_INST_OPCODE_MASK        (0xffffffff<<LEON_DSU_TRCA_INST_OPCODE_SHIFT)
 
 
 /* --- DSU Trap Register ---------------------------------------------------- */

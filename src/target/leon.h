@@ -63,12 +63,23 @@ enum leon_type {
 	LEON_TYPE_L2MT,
 };
 
+enum leon_trace_type {
+	LEON_TRCTYPE_UNKNOWN,
+	LEON_TRCTYPE_NONE,
+	LEON_TRCTYPE_CPU,
+	LEON_TRCTYPE_AHB,
+	LEON_TRCTYPE_BOTH,
+};
+
 struct leon_common {
 	struct jtag_tap *tap;
 	uint32_t   loptime; // processing time [ms] of the last operation
 
 	/* leon type */
 	enum leon_type ltype;
+
+	/* tracing */
+	enum leon_trace_type trctype;
 
 	/* copy and desription of registers */
 	struct reg_cache *regdesc;
@@ -109,5 +120,8 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
 /* -------------------------------------------------------------------------- */
 uint32_t leon_get_current_time(void);
 
+/* -------------------------------------------------------------------------- */
+/* leon_disas.c */
+char *leon_disas(enum leon_type lt, uint32_t addr, uint32_t opcode);
 
 #endif /* LEON_OOCD_TARGET_HEADER_FILE */

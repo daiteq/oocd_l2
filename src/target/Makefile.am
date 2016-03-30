@@ -138,7 +138,8 @@ LEON_SRC = \
 	leon.c \
 	leon_jtag.c \
 	leon_regs.c \
-	leon_regdesc.c
+	leon_regdesc.c \
+	leon_disas.c
 
 noinst_HEADERS = \
 	algorithm.h \

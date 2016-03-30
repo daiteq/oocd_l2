@@ -57,6 +57,17 @@ static char *leon_type_to_string(enum leon_type ltp)
 	}
 }
 
+static char *leon_trctype_to_string(enum leon_trace_type lttp)
+{
+	switch (lttp) {
+		case LEON_TRCTYPE_NONE: return "none";
+		case LEON_TRCTYPE_CPU:  return "instructions";
+		case LEON_TRCTYPE_AHB:  return "AHB transactions";
+		case LEON_TRCTYPE_BOTH: return "mixed (inst and AHB)";
+		default:                return "unknown";
+	}
+}
+
 static void print_hwinfo(struct command_context *cmd_ctx, struct target *tgt)
 {
 	struct leon_common *leon = target_to_leon(tgt);
@@ -195,6 +206,27 @@ void leon_update_crc16(uint16_t *crcval, uint16_t data)
 	*crcval = c;
 }
 
+void leon_update_tmode(struct leon_common *leon, uint32_t dsu, uint32_t trc)
+{
+	if (dsu & LEON_DSU_CTRL_TRACE_EN) {
+		switch (trc & (LEON_DSU_TRCTRL_TI | LEON_DSU_TRCTRL_TA)) {
+			case LEON_DSU_TRCTRL_TI:
+				leon->trctype = LEON_TRCTYPE_CPU;
+				break;
+			case LEON_DSU_TRCTRL_TA:
+				leon->trctype = LEON_TRCTYPE_AHB;
+				break;
+			case LEON_DSU_TRCTRL_TI | LEON_DSU_TRCTRL_TA:
+				leon->trctype = LEON_TRCTYPE_BOTH;
+				break;
+			default:
+				leon->trctype = LEON_TRCTYPE_NONE;
+				break;
+		}
+	} else
+		leon->trctype = LEON_TRCTYPE_NONE;
+}
+
 uint32_t leon_get_current_time(void)
 {
 	struct timeval t1;
@@ -217,6 +249,109 @@ struct target *leon_cmd_to_tgt(struct command_invocation *cmd)
 }
 
 
+
+/* TRACE BUFFER */
+static uint32_t tbuf_to_time(enum leon_trace_type tt, uint32_t *ptb)
+{
+	if (tt==LEON_TRCTYPE_AHB)
+		return (*(ptb+0) & LEON_DSU_TRCD_AHB_TIMETAG_MASK)>>LEON_DSU_TRCD_AHB_TIMETAG_SHIFT;
+	else if (tt==LEON_TRCTYPE_CPU)
+		return (*(ptb+0) & LEON_DSU_TRCD_INST_TIMETAG_MASK)>>LEON_DSU_TRCD_INST_TIMETAG_SHIFT;
+	return 0xffffffff;
+}
+static inline uint32_t tbuf_to_inst_pc(uint32_t *ptb)
+{
+	return (*(ptb+2) & LEON_DSU_TRCB_INST_PC_MASK)>>LEON_DSU_TRCB_INST_PC_SHIFT;
+}
+static inline uint32_t tbuf_to_inst_opcode(uint32_t *ptb)
+{
+	return (*(ptb+3) & LEON_DSU_TRCA_INST_OPCODE_MASK)>>LEON_DSU_TRCA_INST_OPCODE_SHIFT;
+}
+static inline uint32_t tbuf_to_inst_param(uint32_t *ptb)
+{
+	return (*(ptb+1) & LEON_DSU_TRCC_INST_LDSTPAR_MASK)>>LEON_DSU_TRCC_INST_LDSTPAR_SHIFT;
+}
+
+static inline uint32_t tbuf_to_ahb_addr(uint32_t *ptb)
+{
+	return (*(ptb+3) & LEON_DSU_TRCA_AHB_ADDR_MASK)>>LEON_DSU_TRCA_AHB_ADDR_SHIFT;
+}
+static inline const char *tbuf_to_ahb_type(uint32_t *ptb)
+{
+	if (*(ptb+1) & LEON_DSU_TRCC_AHB_HWRITE) return "write";
+	else return "read ";
+}
+static inline uint32_t tbuf_to_ahb_data(uint32_t *ptb)
+{
+	return (*(ptb+2) & LEON_DSU_TRCB_AHB_DATA_MASK)>>LEON_DSU_TRCB_AHB_DATA_SHIFT;
+}
+static inline int tbuf_to_ahb_trans(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HTRANS_MASK)>>LEON_DSU_TRCC_AHB_HTRANS_SHIFT);
+}
+static inline int tbuf_to_ahb_size(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HSIZE_MASK)>>LEON_DSU_TRCC_AHB_HSIZE_SHIFT);
+}
+static inline int tbuf_to_ahb_burst(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HBURST_MASK)>>LEON_DSU_TRCC_AHB_HBURST_SHIFT);
+}
+static inline int tbuf_to_ahb_mst(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HMASTER_MASK)>>LEON_DSU_TRCC_AHB_HMASTER_SHIFT);
+}
+static inline int tbuf_to_ahb_lock(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HMASTLOCK)>>LEON_DSU_TRCC_AHB_HMASTLOCK_SHIFT);
+}
+static inline int tbuf_to_ahb_resp(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_HRESP_MASK)>>LEON_DSU_TRCC_AHB_HRESP_SHIFT);
+}
+static inline int tbuf_to_ahb_tt(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_TT_MASK)>>LEON_DSU_TRCC_AHB_TT_SHIFT);
+}
+static inline int tbuf_to_ahb_pil(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_PIL_MASK)>>LEON_DSU_TRCC_AHB_PIL_SHIFT);
+}
+static inline int tbuf_to_ahb_irl(uint32_t *ptb)
+{
+	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_IRL_MASK)>>LEON_DSU_TRCC_AHB_IRL_SHIFT);
+}
+
+static void print_trace(struct command_context *cmd_ctx, enum leon_type lt,
+                        enum leon_trace_type tt, uint32_t *tbuf) /* tbuf = [ 127-96, 95-64, 63-32, 31-0 ] */
+{
+	if (tt==LEON_TRCTYPE_CPU) {
+		if (tbuf==NULL) {
+			command_print(cmd_ctx, "  time     address     instruction      result");
+		} else {
+			command_print(cmd_ctx, " %10u  %08X  %-30s  [%08X]",
+			              tbuf_to_time(tt, tbuf), tbuf_to_inst_pc(tbuf),
+			              leon_disas(lt, tbuf_to_inst_pc(tbuf), leon_swap_u32(tbuf_to_inst_opcode(tbuf))),
+			              tbuf_to_inst_param(tbuf));
+		}
+	} else if (tt==LEON_TRCTYPE_AHB) {
+		if (tbuf==NULL) {
+			command_print(cmd_ctx, "  time     address     type      data  trans size burst mst lock resp tt pil irl");
+		} else {
+			command_print(cmd_ctx, " %10u  %08X  %s  %08X   %d    %d    %d    %d    %d    %d   %02d   %d   %d",
+			              tbuf_to_time(tt, tbuf), tbuf_to_ahb_addr(tbuf),
+			              tbuf_to_ahb_type(tbuf), tbuf_to_ahb_data(tbuf),
+			              tbuf_to_ahb_trans(tbuf), tbuf_to_ahb_size(tbuf),
+			              tbuf_to_ahb_burst(tbuf), tbuf_to_ahb_mst(tbuf),
+			              tbuf_to_ahb_lock(tbuf), tbuf_to_ahb_resp(tbuf),
+			              tbuf_to_ahb_tt(tbuf), tbuf_to_ahb_pil(tbuf),
+			              tbuf_to_ahb_irl(tbuf));
+		}
+	} else { /* other type prints trace header */
+		command_print(cmd_ctx, "-- unsupported trace type");
+	}
+}
+
 /* ========================================================================== */
 
 static int leon_target_create(struct target *target, Jim_Interp *interp)
@@ -227,6 +362,7 @@ static int leon_target_create(struct target *target, Jim_Interp *interp)
 	pl->tap = target->tap;
 	pl->loptime = 0;
 	pl->ltype = LEON_TYPE_UNKNOWN;
+	pl->trctype = LEON_TRCTYPE_UNKNOWN;
 	target->arch_info = pl;
 
 	return ERROR_OK;
@@ -309,16 +445,24 @@ static int leon_examine(struct target *target)
 			          LEON_GET_VAL(pfsr, SPARC_V8_FSR_VER));
 		}
 		if (LEON_GET_BIT(plcfg, LEON_CFG_REG_IS_DSU)) {
-			uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
-			if (!pdsu) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_CTRL_REG, pdsu, 1);
+			uint32_t rdsu;
+			uint32_t *preg = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
+			if (!preg) break;
+			retval = leon_jtag_get_registers(target, LEON_DSU_CTRL_REG, preg, 1);
 			if (retval!=ERROR_OK) break;
-			LOG_USER(" - DSU Control Register = 0x%X", *pdsu);
-			pdsu = leon_get_ptrreg(target, LEON_RID_DSUTRAP);
-			if (!pdsu) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_SREG_DSU_TRAP, pdsu, 1);
+			LOG_USER(" - DSU Control Register = 0x%X", *preg);
+			rdsu = *preg;
+			preg = leon_get_ptrreg(target, LEON_RID_DSUTRAP);
+			if (!preg) break;
+			retval = leon_jtag_get_registers(target, LEON_DSU_SREG_DSU_TRAP, preg, 1);
 			if (retval!=ERROR_OK) break;
-			LOG_USER(" - DSU Trap Register    = 0x%X", *pdsu);
+			LOG_USER(" - DSU Trap Register    = 0x%X", *preg);
+			preg = leon_get_ptrreg(target, LEON_RID_TRCCTRL);
+			if (!preg) break;
+			retval = leon_jtag_get_registers(target, LEON_DSU_TRACE_CTRL_REG, preg, 1);
+			if (retval!=ERROR_OK) break;
+			LOG_USER(" - DSU Trace Ctrl Reg.  = 0x%X", *preg);
+			leon_update_tmode(leon, rdsu, *preg);
 		} else {
 			LOG_WARNING("The target doesn't contain DSU");
 		}
@@ -1098,7 +1242,8 @@ COMMAND_HANDLER(leon_handle_leontype_command)
 		else if (!strcmp(CMD_ARGV[0], "l2mt"))
 			leon->ltype = LEON_TYPE_L2MT;
 		else
-			leon->ltype = LEON_TYPE_UNKNOWN;
+//			leon->ltype = LEON_TYPE_UNKNOWN;
+			return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
 	command_print(CMD_CTX, "LEON processor type = %s", leon_type_to_string(leon->ltype));
@@ -1188,6 +1333,148 @@ COMMAND_HANDLER(leon_handle_parsereg_command)
 	return ERROR_OK;
 }
 
+COMMAND_HANDLER(leon_handle_tmode_command)
+{
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+
+	if (CMD_ARGC > 1) {
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	if (CMD_ARGC == 1) {
+		int rc = ERROR_FAIL;
+		if (tgt->state != TARGET_HALTED) {
+			LOG_ERROR("Target not halted");
+			return ERROR_TARGET_NOT_HALTED;
+		}
+		uint32_t *pdsuc = leon_get_ptrreg(tgt, LEON_RID_DSUCTRL);
+		uint32_t *ptrcc = leon_get_ptrreg(tgt, LEON_RID_TRCCTRL);
+		if (leon_read_register(tgt, LEON_RID_DSUCTRL, 0)!=ERROR_OK ||
+		    leon_read_register(tgt, LEON_RID_TRCCTRL, 0)!=ERROR_OK)
+			return ERROR_FAIL;
+
+		if (!strcmp(CMD_ARGV[0], "none")) {
+			leon->trctype = LEON_TRCTYPE_NONE;
+			rc = leon_write_register(tgt, LEON_RID_TRCCTRL, *ptrcc & ~(LEON_DSU_TRCTRL_TI | LEON_DSU_TRCTRL_TA));
+			rc = leon_write_register(tgt, LEON_RID_DSUCTRL, *pdsuc & ~LEON_DSU_CTRL_TRACE_EN);
+		} else if (!strcmp(CMD_ARGV[0], "proc")) {
+			leon->trctype = LEON_TRCTYPE_CPU;
+			rc = leon_write_register(tgt, LEON_RID_TRCCTRL, (*ptrcc | LEON_DSU_TRCTRL_TI) & ~(LEON_DSU_TRCTRL_TA | LEON_DSU_TRCTRL_AHB_IDX_MASK | LEON_DSU_TRCTRL_INST_IDX_MASK));
+			rc |= leon_write_register(tgt, LEON_RID_DSUCTRL, *pdsuc | LEON_DSU_CTRL_TRACE_EN);
+		} else if (!strcmp(CMD_ARGV[0], "ahb")) {
+			leon->trctype = LEON_TRCTYPE_AHB;
+			rc = leon_write_register(tgt, LEON_RID_TRCCTRL, (*ptrcc | LEON_DSU_TRCTRL_TA) & ~(LEON_DSU_TRCTRL_TI | LEON_DSU_TRCTRL_AHB_IDX_MASK | LEON_DSU_TRCTRL_INST_IDX_MASK));
+			rc |= leon_write_register(tgt, LEON_RID_DSUCTRL, *pdsuc | LEON_DSU_CTRL_TRACE_EN);
+		} else if (!strcmp(CMD_ARGV[0], "both")) {
+			leon->trctype = LEON_TRCTYPE_BOTH;
+			rc = leon_write_register(tgt, LEON_RID_TRCCTRL, (*ptrcc | LEON_DSU_TRCTRL_TI | LEON_DSU_TRCTRL_TA) & ~(LEON_DSU_TRCTRL_AHB_IDX_MASK | LEON_DSU_TRCTRL_INST_IDX_MASK));
+			rc |= leon_write_register(tgt, LEON_RID_DSUCTRL, *pdsuc | LEON_DSU_CTRL_TRACE_EN);
+		} else {
+			return ERROR_COMMAND_SYNTAX_ERROR;
+		}
+	}
+
+	command_print(CMD_CTX, "Trace mode = %s", leon_trctype_to_string(leon->trctype));
+
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(leon_handle_hist_command)
+{
+	int n = 10, rc;
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+	uint32_t tbuf[4];
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+	if (CMD_ARGC > 1) return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC == 1) n = atoi(CMD_ARGV[0]);
+
+	uint32_t *pdsuc = leon_get_ptrreg(tgt, LEON_RID_DSUCTRL);
+	uint32_t *ptrcc = leon_get_ptrreg(tgt, LEON_RID_TRCCTRL);
+	if (!pdsuc || !ptrcc) return ERROR_FAIL;
+	if (leon_read_register(tgt, LEON_RID_DSUCTRL, 1)!=ERROR_OK) return ERROR_FAIL;
+	if (leon_read_register(tgt, LEON_RID_TRCCTRL, 1)!=ERROR_OK) return ERROR_FAIL;
+	leon_update_tmode(leon, *pdsuc, *ptrcc);
+	if (leon->trctype==LEON_TRCTYPE_BOTH) {
+		command_print(CMD_CTX, "--- Mixed mode trace NI ---");
+	} else {
+		if (leon->trctype==LEON_TRCTYPE_AHB) {
+			rc = LEON_GET_VAL(ptrcc, LEON_DSU_TRCTRL_AHB_IDX);
+		} else {
+			rc = LEON_GET_VAL(ptrcc, LEON_DSU_TRCTRL_INST_IDX);
+		}
+		if (rc<n) n=rc;
+		print_trace(CMD_CTX, leon->ltype, leon->trctype, NULL);
+		while (n>0) {
+			uint32_t addr = LEON_DSU_TRACE_BUFFER_BASE+(rc-n)*16;
+//	printf("hist addr = 0x%08X\n", addr);
+			if (leon_jtag_get_registers(tgt, addr, tbuf, 4) != ERROR_OK) break;
+			print_trace(CMD_CTX, leon->ltype, leon->trctype, tbuf);
+			n--;
+		}
+	}
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(leon_handle_ahb_command)
+{
+	return ERROR_OK;
+}
+COMMAND_HANDLER(leon_handle_inst_command)
+{
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(leon_handle_disas_command)
+{
+	uint32_t addr = 0xffffffff, opcode, n = 1;
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+	if (CMD_ARGC > 2) return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC > 0) {
+		addr = strtoul(CMD_ARGV[0], NULL, 0);
+	}
+	if (CMD_ARGC > 1) {
+		n = strtoul(CMD_ARGV[1], NULL, 0);
+	}
+	if (addr == 0xffffffff) { /* get addr from PC */
+		uint32_t *ppc = leon_get_ptrreg(tgt, LEON_RID_PC);
+		if (leon_read_register(tgt, LEON_RID_PC, 1)!=ERROR_OK) return ERROR_FAIL;
+		addr = *ppc;
+	}
+
+	while(n>0) {
+		if (leon_jtag_get_registers(tgt, addr, &opcode, 1)!=ERROR_OK) {
+			break;
+		}
+//		opcode = leon_swap_u32(opcode);
+		command_print(CMD_CTX, "%08X  %08X   %-30s", addr, opcode,
+		              leon_disas(leon->ltype, addr, opcode));
+		addr += 4;
+		n--;
+	}
+
+	return ERROR_OK;
+}
+
 /* ========================================================================== */
 
 static const struct command_registration leon_command_handlers[] = {
@@ -1195,7 +1482,6 @@ static const struct command_registration leon_command_handlers[] = {
 		.name = "loptime",
 		.handler = leon_handle_loptime_command,
 		.mode = COMMAND_EXEC,
-		/* prefer using less error-prone "arm mcr" or "arm mrc" */
 		.help = "get processing time [ms] of the last LEON operation",
 		.usage = NULL,
 	},
@@ -1203,7 +1489,6 @@ static const struct command_registration leon_command_handlers[] = {
 		.name = "hwinfo",
 		.handler = leon_handle_hwinfo_command,
 		.mode = COMMAND_EXEC,
-		/* prefer using less error-prone "arm mcr" or "arm mrc" */
 		.help = "get and print HW information about LEON target",
 		.usage = NULL,
 	},
@@ -1211,7 +1496,6 @@ static const struct command_registration leon_command_handlers[] = {
 		.name = "leontype",
 		.handler = leon_handle_leontype_command,
 		.mode = COMMAND_EXEC,
-		/* prefer using less error-prone "arm mcr" or "arm mrc" */
 		.help = "With an argument, set type of LEON processor (can be dangerous)."
 		        "With or without argument, display current setting.",
 		.usage = "[unknown | l2 | l2ft | l2mt]",
@@ -1220,11 +1504,59 @@ static const struct command_registration leon_command_handlers[] = {
 		.name = "parsereg",
 		.handler = leon_handle_parsereg_command,
 		.mode = COMMAND_EXEC,
-		/* prefer using less error-prone "arm mcr" or "arm mrc" */
 		.help = "With argument, name of register, get and parse this register."
 		        "Without argument, parse all non-trivial registers.",
 		.usage = NULL,
 	},
+
+/* --- grlib compatible commands --- */
+	{
+		.name = "tmode",
+		.handler = leon_handle_tmode_command,
+		.mode = COMMAND_EXEC,
+		.help = "Select tracing mode between none, processor-only, AHB only or both.",
+		.usage = "[none | proc | ahb | both]",
+	},
+
+	{
+		.name = "hist",
+		.handler = leon_handle_hist_command,
+		.mode = COMMAND_EXEC,
+		.help = "Display trace history (mixed mode)",
+		.usage = "[number of lines]",
+	},
+	{
+		.name = "ahb",
+		.handler = leon_handle_ahb_command,
+		.mode = COMMAND_EXEC,
+		.help = "Display history of AHB transactions",
+		.usage = "[number of lines]",
+	},
+	{
+		.name = "inst",
+		.handler = leon_handle_inst_command,
+		.mode = COMMAND_EXEC,
+		.help = "Display trace history of CPU instructions",
+		.usage = "[number of lines]",
+	},
+	{
+		.name = "disas",
+		.handler = leon_handle_disas_command,
+		.mode = COMMAND_EXEC,
+		.help = "Disassemble memory",
+		.usage = "<address> <length>",
+	},
+//	{
+//		.name = "wmem",
+//		.handler = leon_handle_parsereg_command,
+//		.mode = COMMAND_EXEC,
+//		/* prefer using less error-prone "arm mcr" or "arm mrc" */
+//		.help = "With argument, name of register, get and parse this register."
+//		        "Without argument, parse all non-trivial registers.",
+//		.usage = NULL,
+//	},
+
+/* --- */
 
 	COMMAND_REGISTRATION_DONE
 };

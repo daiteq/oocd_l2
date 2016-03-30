@@ -125,6 +125,7 @@ const leon_registers_t leon_peri_regs[] = {
 
 const leon_registers_t leon_dsu_regs[] = {
 	{   LEON_RID_DSUCTRL,   "dsuctrl", REG_TYPE_UINT32, LEON_DSU_CTRL_REG},
+	{   LEON_RID_TRCCTRL,   "trcctrl", REG_TYPE_UINT32, LEON_DSU_TRACE_CTRL_REG},
 	{ LEON_RID_DSUBADDR1, "dsubaddr1", REG_TYPE_UINT32, LEON_DSU_AHB_BRK_ADDR1},
 	{ LEON_RID_DSUBMASK1, "dsubmask1", REG_TYPE_UINT32, LEON_DSU_AHB_BRK_MASK1},
 	{ LEON_RID_DSUBADDR2, "dsubaddr2", REG_TYPE_UINT32, LEON_DSU_AHB_BRK_ADDR2},
@@ -195,6 +196,17 @@ const leon_reg_item_t leon_regdes_dsuctrl[] = {
 	{ 0, NULL, NULL, 0, 0}
 };
 
+const leon_reg_item_t leon_regdes_trcctrl[] = {
+	{ 1,   "II", "Instruction trace index", LEON_DSU_TRCTRL_INST_IDX_MASK, LEON_DSU_TRCTRL_INST_IDX_SHIFT},
+	{ 1,   "AI",         "AHB trace index",  LEON_DSU_TRCTRL_AHB_IDX_MASK, LEON_DSU_TRCTRL_AHB_IDX_SHIFT},
+	{ 1,   "TI",     "Trace instr. enable",            LEON_DSU_TRCTRL_TI, LEON_DSU_TRCTRL_TI_SHIFT},
+	{ 1,   "TA",        "Trace AHB enable",            LEON_DSU_TRCTRL_TA, LEON_DSU_TRCTRL_TA_SHIFT},
+	{ 1,   "AF",        "AHB trace freeze",            LEON_DSU_TRCTRL_AF, LEON_DSU_TRCTRL_AF_SHIFT},
+	{ 1, "SFLT",         "Slave filtering",    LEON_DSU_TRCTRL_SFILT_MASK, LEON_DSU_TRCTRL_SFILT_SHIFT},
+	{ 1, "MFLT",        "Master filtering",    LEON_DSU_TRCTRL_MFILT_MASK, LEON_DSU_TRCTRL_MFILT_SHIFT},
+	{ 0, NULL, NULL, 0, 0}
+};
+
 const leon_reg_item_t leon_regdes_dsubreakaddr[] = {
 	{ 1,   "EX",     "Break on instruction",         LEON_DSU_BRKADDR_EX, LEON_DSU_BRKADDR_EX_SHIFT},
 	{ 1, "BADR", "Breakpoint Address(31:2)", LEON_DSU_BRKADDR_BADDR_MASK, LEON_DSU_BRKADDR_BADDR_SHIFT},
@@ -218,6 +230,7 @@ const leon_reg_parsed_t leon_register_description[] = {
 	{       LEON_RID_PSR,      "PSR", "Processor State Register", leon_regdes_psr},
 	{       LEON_RID_TBR,      "TBR", "Trap Base Register", leon_regdes_tbr},
 	{   LEON_RID_DSUCTRL,  "DSUCTRL", "DSU Control Register", leon_regdes_dsuctrl},
+	{   LEON_RID_TRCCTRL,  "TRCCTRL", "Trace Buffer Control Register", leon_regdes_trcctrl},
 	{ LEON_RID_DSUBADDR1, "BRKADDR1", "DSU Breakpoint Address 1", leon_regdes_dsubreakaddr},
 	{ LEON_RID_DSUBMASK1, "BRKMASK1", "DSU Breakpoint Mask 1", leon_regdes_dsubreakmask},
 	{ LEON_RID_DSUBADDR2, "BRKADDR2", "DSU Breakpoint Address 2", leon_regdes_dsubreakaddr},

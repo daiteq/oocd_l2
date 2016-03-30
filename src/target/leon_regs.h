@@ -74,6 +74,7 @@ enum leon_peri_register_indices {
 
 enum leon_dsu_register_indices {
 	LEON_RID_DSUCTRL = LEON_RID_SIZE_PERI,
+	LEON_RID_TRCCTRL,
 	LEON_RID_DSUBADDR1,
 	LEON_RID_DSUBMASK1,
 	LEON_RID_DSUBADDR2,

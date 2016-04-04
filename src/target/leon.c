@@ -1157,14 +1157,99 @@ static int leon_run_algorithm(struct target *target, int num_mem_params,
 
 static int leon_add_breakpoint(struct target *target, struct breakpoint *breakpoint)
 {
-	LOG_DEBUG("%s", __func__);
+//	struct leon_common *leon = target_to_leon(target);
+	uint32_t data;
+	int retval;
+
+	LOG_DEBUG("Adding breakpoint: addr 0x%08" PRIx32 ", len %d, type %d, set: %d, id: %" PRId32,
+	          breakpoint->address, breakpoint->length, breakpoint->type,
+	          breakpoint->set, breakpoint->unique_id);
+
+	/* Only support SW breakpoints for now. */
+	if (breakpoint->type == BKPT_HARD) {
+		LOG_INFO("... add HW breakpoint ... use DSU hw breakpoints ... TODO");
+		// count number of HW breakpoints -> too many/one/none
+		struct breakpoint *pbp = targets->breakpoints;
+		int hwcnt = 0;
+		while (pbp) {
+			LOG_INFO("brk = %p", pbp);
+			if (pbp->type == BKPT_HARD) {
+				hwcnt++;
+			}
+			pbp = pbp->next;
+		}
+		if (hwcnt==2) {
+			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		} else {
+			// TODO
+			return ERROR_FAIL;
+		}
+
+	} else {
+		LOG_ERROR("... add SW breakpoint");
+
+		/* Read and save the instruction */
+		retval = leon_read_memory(target, breakpoint->address, 4, 1, (uint8_t *)&data);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Error while reading the instruction at 0x%08" PRIx32,
+			          breakpoint->address);
+			return retval;
+		}
+
+		if (breakpoint->orig_instr != NULL)
+			free(breakpoint->orig_instr);
+
+		breakpoint->orig_instr = malloc(breakpoint->length);
+		memcpy(breakpoint->orig_instr, &data, breakpoint->length);
+
+		/* Sub in the OR1K trap instruction */
+		target_buffer_set_u32(target, (uint8_t *)&data, LEON_DSU_TRAP_INSTR);
+		retval = leon_write_memory(target, breakpoint->address, 4, 1, (uint8_t *)&data);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Error while writing SW BREAK at 0x%08" PRIx32,
+			          breakpoint->address);
+			return retval;
+		}
+		/* TODO: invalidate instruction cache */
+//		retval = leon_invalidate_icache(target, 1, &breakpoint->address);
+//		if (retval != ERROR_OK) {
+//			LOG_ERROR("Error while invalidating the ICACHE");
+//			return retval;
+//		}
+	}
 	return ERROR_OK;
 }
 
 
 static int leon_remove_breakpoint(struct target *target, struct breakpoint *breakpoint)
 {
-	LOG_DEBUG("%s", __func__);
+//	struct leon_common *leon = target_to_leon(target);
+	int retval;
+
+	LOG_DEBUG("Removing breakpoint: addr 0x%08" PRIx32 ", len %d, type %d, set: %d, id: %" PRId32,
+	          breakpoint->address, breakpoint->length, breakpoint->type,
+	          breakpoint->set, breakpoint->unique_id);
+
+	if (breakpoint->type == BKPT_HARD) {
+		LOG_INFO("... add HW breakpoint ... TODO");
+		
+	} else {
+		/* Replace the removed instruction */
+		retval = leon_write_memory(target, breakpoint->address,
+		                           4, 1, breakpoint->orig_instr);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Error while writing back the instruction at 0x%08" PRIx32,
+			          breakpoint->address);
+			return retval;
+		}
+
+		/* TODO: invalidate instruction cache */
+//		retval = leon_invalidate_icache(target, 1, &breakpoint->address);
+//		if (retval != ERROR_OK) {
+//			LOG_ERROR("Error while invalidating the ICACHE");
+//			return retval;
+//		}
+	}
 	return ERROR_OK;
 }
 

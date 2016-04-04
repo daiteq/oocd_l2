@@ -10,6 +10,7 @@
 #include <jtag/jtag.h>
 #include "target.h"
 #include "target_type.h"
+#include "breakpoints.h"
 
 #include "leon_regs.h"
 
@@ -105,6 +106,8 @@ static inline uint16_t leon_swap_u16(uint16_t in)
 {
 	return ((in>>8)&0xff) | ((in<<8)&0xff00);
 }
+
+#define LEON_DSU_TRAP_INSTR  0x91D02001    // Sparc v8 inst. TA 1 -> DSU break
 
 /* -------------------------------------------------------------------------- */
 /* leon_jtag.c */

@@ -247,6 +247,7 @@ static uint32_t leon_get_addr_from_rid(struct target *tgt, uint32_t rid)
 		switch (leon->ltype) {
 			case LEON_TYPE_L2:
 			case LEON_TYPE_L2FT:
+			case LEON_TYPE_L2MT: /* TODO: move to standalone case */
 				if (i<8) {			// read global registers
 					if (fputp) // fpu is enabled
 						rofs = (nwp * 64)+128 + 4*i;

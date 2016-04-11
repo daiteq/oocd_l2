@@ -10,7 +10,9 @@
 
 #include "leon.h"
 
-#include <sys/time.h>                // for gettimeofday()
+#include "image.h"
+
+//#include <sys/time.h>                // for gettimeofday()
 
 /* -------------------------------------------------------------------------- */
 //static void leon_deinit_target(struct target *target);
@@ -227,12 +229,12 @@ void leon_update_tmode(struct leon_common *leon, uint32_t dsu, uint32_t trc)
 		leon->trctype = LEON_TRCTYPE_NONE;
 }
 
-uint32_t leon_get_current_time(void)
-{
-	struct timeval t1;
-	gettimeofday(&t1, NULL);
-	return t1.tv_sec*1000 + t1.tv_usec/1000;
-}
+//uint32_t leon_get_current_time(void)
+//{
+//	struct timeval t1;
+//	gettimeofday(&t1, NULL);
+//	return t1.tv_sec*1000 + t1.tv_usec/1000;
+//}
 
 struct target *leon_cmd_to_tgt(struct command_invocation *cmd)
 {
@@ -398,7 +400,10 @@ static int leon_examine(struct target *target)
 
 	LOG_DEBUG("LEONexam (%s)", __func__);
 
-	uint32_t tin = leon_get_current_time();
+//	uint32_t tin = leon_get_current_time();
+	struct duration bench;
+	duration_start(&bench);
+
 	/* Reestablish communication after target reset */
 	/* forced enter to BS USER1 register */
 	retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
@@ -473,7 +478,9 @@ static int leon_examine(struct target *target)
 //target->state = TARGET_HALTED;
 		retval = ERROR_OK;
 	} while(0);
-	leon->loptime = leon_get_current_time() - tin;
+	//leon->loptime = leon_get_current_time() - tin;
+	duration_measure(&bench);
+	leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
 	if (leon->ltype==LEON_TYPE_UNKNOWN)
 		LOG_WARNING("Type of LEON processor hasn't been detected - use command 'leontype' for manual selection.");
 	return retval;
@@ -524,7 +531,10 @@ static int leon_halt(struct target *target)
 		return ERROR_OK;
 	}
 	do {
-		uint32_t tin = leon_get_current_time();
+		//uint32_t tin = leon_get_current_time();
+		struct duration bench;
+		duration_start(&bench);
+
 		uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
 		if (!pdsu) break;
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
@@ -552,7 +562,10 @@ static int leon_halt(struct target *target)
 			return retval;
 		}
 
-		leon->loptime = leon_get_current_time() - tin;
+		//leon->loptime = leon_get_current_time() - tin;
+		duration_measure(&bench);
+		leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+
 		return ERROR_OK;
 	} while(0);
 
@@ -575,7 +588,10 @@ static int leon_resume(struct target *target, int current, uint32_t address,
 	}
 
 	do {
-		uint32_t tin = leon_get_current_time();
+		//uint32_t tin = leon_get_current_time();
+		struct duration bench;
+		duration_start(&bench);
+
 		uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
 		if (!pdsu) break;
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
@@ -613,7 +629,10 @@ static int leon_resume(struct target *target, int current, uint32_t address,
 			return retval;
 		}
 
-		leon->loptime = leon_get_current_time() - tin;
+		//leon->loptime = leon_get_current_time() - tin;
+		duration_measure(&bench);
+		leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+
 		return ERROR_OK;
 	} while(0);
 	LOG_ERROR("Resume from debug mode failed");
@@ -646,7 +665,10 @@ static int leon_step(struct target *target, int current,
 			}
 		}
 
-		uint32_t tin = leon_get_current_time();
+		//uint32_t tin = leon_get_current_time();
+		struct duration bench;
+		duration_start(&bench);
+
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
 		if (retval!=ERROR_OK) break;
 		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
@@ -676,7 +698,10 @@ static int leon_step(struct target *target, int current,
 			LOG_DEBUG("target stepped");
 		}
 
-		leon->loptime = leon_get_current_time() - tin;
+		//leon->loptime = leon_get_current_time() - tin;
+		duration_measure(&bench);
+		leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+
 		return ERROR_OK;
 	} while(0);
 
@@ -717,9 +742,16 @@ int leon_soft_reset_halt(struct target *target)
 	if (retval != ERROR_OK)
 		return retval;
 
-	uint32_t then = leon_get_current_time();
-	int timeout;
-	while (!(timeout = ((leon_get_current_time()-then) > 1000))) {
+	//uint32_t then = leon_get_current_time();
+	struct duration bench;
+	duration_start(&bench);
+
+	int timeout = 0;
+	while (1) {
+		duration_measure(&bench);
+		leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+		if (duration_elapsed(&bench)>=1) { timeout = 1; break; }
+
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
 		if (retval != ERROR_OK) return retval;
 		if (LEON_GET_BIT(pdsu, LEON_DSU_CTRL_DEBUG_MODE)) break; /* halted */
@@ -828,7 +860,10 @@ static int leon_read_memory(struct target *target, uint32_t addr,
 		return ERROR_FAIL;
 	}
 
-	uint32_t tin = leon_get_current_time();
+	//uint32_t tin = leon_get_current_time();
+	struct duration bench;
+	duration_start(&bench);
+
 	do {
 		retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
 		if (retval!=ERROR_OK) {
@@ -968,7 +1003,10 @@ static int leon_read_memory(struct target *target, uint32_t addr,
 		}
 	} while(0);
 
-	leon->loptime = leon_get_current_time() - tin;
+	//leon->loptime = leon_get_current_time() - tin;
+	duration_measure(&bench);
+	leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+
 	free(pinval);
 	return retval;
 }
@@ -1047,7 +1085,10 @@ static int leon_write_memory(struct target *target, uint32_t addr,
 		buf = t;
 	}
 
-	uint32_t tin = leon_get_current_time();
+	//uint32_t tin = leon_get_current_time();
+	struct duration bench;
+	duration_start(&bench);
+
 	do {
 		retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
 		if (retval!=ERROR_OK) {
@@ -1123,7 +1164,10 @@ static int leon_write_memory(struct target *target, uint32_t addr,
 		}
 	} while(0);
 
-	leon->loptime = leon_get_current_time() - tin;
+	//leon->loptime = leon_get_current_time() - tin;
+	duration_measure(&bench);
+	leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+
 	if (t!=NULL) free(t);
 	return retval;
 }
@@ -1169,7 +1213,7 @@ static int leon_add_breakpoint(struct target *target, struct breakpoint *breakpo
 	if (breakpoint->type == BKPT_HARD) {
 		LOG_INFO("... add HW breakpoint ... use DSU hw breakpoints ... TODO");
 		// count number of HW breakpoints -> too many/one/none
-		struct breakpoint *pbp = targets->breakpoints;
+		struct breakpoint *pbp = target->breakpoints;
 		int hwcnt = 0;
 		while (pbp) {
 			LOG_INFO("brk = %p", pbp);
@@ -1560,6 +1604,202 @@ COMMAND_HANDLER(leon_handle_disas_command)
 	return ERROR_OK;
 }
 
+/* -------------------------------------------------------------------------- */
+#define elf_field16(elf, field) \
+	((elf->endianness == ELFDATA2LSB) ? \
+	le_to_h_u16((uint8_t *)&field) : be_to_h_u16((uint8_t *)&field))
+
+#define elf_field32(elf, field) \
+	((elf->endianness == ELFDATA2LSB) ? \
+	le_to_h_u32((uint8_t *)&field) : be_to_h_u32((uint8_t *)&field))
+
+static int leon_load_elf_section(struct image_elf *pie, int sidx,
+                            Elf32_Shdr **psect, void **pctx, uint32_t *ctxsz)
+{
+	size_t rdsz;
+	size_t ssz = elf_field16(pie, pie->header->e_shentsize);
+	int ofst = elf_field32(pie, pie->header->e_shoff) + ssz * sidx;
+	Elf32_Shdr *pnsh = (Elf32_Shdr *)realloc(*psect, ssz);
+	if (pnsh==NULL) return ERROR_FAIL;
+	*psect = pnsh;
+	int retval = fileio_seek(pie->fileio, ofst);
+	if (retval != ERROR_OK) return retval;
+	retval = fileio_read(pie->fileio, ssz, pnsh, &rdsz);
+	if (retval != ERROR_OK || rdsz != ssz) {
+		return retval;
+	}
+	if (pctx) { /* load also context */
+		size_t csz = elf_field32(pie, pnsh->sh_size);
+		void *pb = realloc(*pctx, csz);
+		if (pb==NULL) return ERROR_FAIL;
+		if (ctxsz) *ctxsz = csz;
+		*pctx = pb;
+		retval = fileio_seek(pie->fileio, elf_field32(pie, pnsh->sh_offset));
+		if (retval != ERROR_OK) return retval;
+		retval = fileio_read(pie->fileio, csz, pb, &rdsz);
+		if (retval != ERROR_OK || rdsz != csz) {
+			return retval;
+		}
+	}
+	return retval;
+}
+
+static char *leon_elf_string(char *pss, uint32_t sssz, uint32_t ofst)
+{
+	if (pss==NULL || sssz==0) return "";
+	if (ofst>=sssz) return "";
+	return (pss + ofst);
+}
+
+COMMAND_HANDLER(leon_load_elf_command)
+{
+	uint8_t *buffer;
+	size_t buf_cnt;
+	uint32_t image_size;
+	uint32_t min_address = 0;
+	uint32_t max_address = 0xffffffff;
+	int i;
+	int retval;
+	struct image image;
+
+	struct target *target = leon_cmd_to_tgt(cmd);
+
+	struct duration bench;
+	duration_start(&bench);
+
+	if (image_open(&image, CMD_ARGV[0], "elf") != ERROR_OK) {
+		LOG_ERROR("Load ELF file with symbols failed. Try common command 'load_image'.");
+		return ERROR_OK;
+	}
+	/* BEGIN: loading symbols */
+	if (image.type==IMAGE_ELF) {
+		struct image_elf *pie = (struct image_elf *)image.type_private;
+		LOG_INFO(">> ELF type=x%X mach=x%X ver=x%X entry=0x%08X",
+		           elf_field16(pie, pie->header->e_type),
+		           elf_field16(pie, pie->header->e_machine),
+		           elf_field32(pie, pie->header->e_version),
+		           elf_field32(pie, pie->header->e_entry));
+		LOG_INFO("   Section header table @x%X  - esize=%u, enum=%u, stridx=%u",
+		          elf_field32(pie, pie->header->e_shoff),
+		          elf_field16(pie, pie->header->e_shentsize),
+		          elf_field16(pie, pie->header->e_shnum),
+		          elf_field16(pie, pie->header->e_shstrndx));
+		Elf32_Shdr *bsec = NULL;
+		char *bstr = NULL;
+		uint32_t bstrsz = 0;
+		do {
+			/* read section with sh string table */
+			retval = leon_load_elf_section(pie,
+			                               elf_field16(pie, pie->header->e_shstrndx),
+			                               &bsec, (void **) &bstr, &bstrsz);
+			if (retval != ERROR_OK) break;
+			/* read all sections */
+			for (i=0; i<elf_field16(pie, pie->header->e_shnum); ++i) {
+				retval = leon_load_elf_section(pie, i, &bsec, NULL, NULL);
+				if (retval!=ERROR_OK) break;
+
+				LOG_INFO(" Read section header #%d", i);
+				LOG_INFO("  name = '%s' (%u) type=%u flags=x%X addr=x%X offs=x%X size=%u, link=%u, info=%u",
+				         leon_elf_string(bstr, bstrsz, elf_field32(pie, bsec->sh_name)),
+				         elf_field32(pie, bsec->sh_name), elf_field32(pie, bsec->sh_type),
+				         elf_field32(pie, bsec->sh_flags), elf_field32(pie, bsec->sh_addr),
+				         elf_field32(pie, bsec->sh_offset), elf_field32(pie, bsec->sh_size),
+				         elf_field32(pie, bsec->sh_link), elf_field32(pie, bsec->sh_info));
+				if (elf_field32(pie, bsec->sh_type)==SHT_SYMTAB) {
+					void *bstab = NULL;
+					uint32_t bstsz = 0;
+					Elf32_Shdr *bsecss = NULL;
+					char *bsymstr = NULL;
+					uint32_t bsssz = 0;
+					do {
+						retval = leon_load_elf_section(pie, i, &bsec, &bstab, &bstsz);
+						if (retval!=ERROR_OK) break;
+						retval = leon_load_elf_section(pie, elf_field32(pie, bsec->sh_link), &bsecss, (void *)&bsymstr, &bsssz);
+						if (retval!=ERROR_OK) break;
+						int n = bstsz / elf_field32(pie, bsec->sh_entsize);
+						LOG_INFO("  - SYMTAB ... n = %d", n);
+						Elf32_Sym *psym = (Elf32_Sym *)bstab;
+						while (n--) {
+							LOG_INFO(" #%d: '%s'  val=x%X  sz=%u  info=%u  other=%u  sec=x%X", n,
+							        leon_elf_string(bsymstr, bsssz, elf_field32(pie, psym->st_name)),
+							        elf_field32(pie, psym->st_value), elf_field32(pie, psym->st_size),
+							        psym->st_info, psym->st_other, elf_field16(pie, psym->st_shndx));
+							psym++;
+						}
+					} while(0);
+					if (bstab) free(bstab);
+					if (bsecss) free(bsecss);
+					if (bsymstr) free(bsymstr);
+				}
+			}
+		} while (0);
+		if (bsec) free(bsec);
+		if (bstr) free(bstr);
+	}
+	/* END: loading symbols */
+
+	image_size = 0x0;
+	retval = ERROR_OK;
+	for (i = 0; i < image.num_sections; i++) {
+		buffer = malloc(image.sections[i].size);
+		if (buffer == NULL) {
+			command_print(CMD_CTX,
+						  "error allocating buffer for section (%d bytes)",
+						  (int)(image.sections[i].size));
+			break;
+		}
+
+		retval = image_read_section(&image, i, 0x0, image.sections[i].size, buffer, &buf_cnt);
+		if (retval != ERROR_OK) {
+			free(buffer);
+			break;
+		}
+
+		uint32_t offset = 0;
+		uint32_t length = buf_cnt;
+
+		/* DANGER!!! beware of unsigned comparision here!!! */
+
+		if ((image.sections[i].base_address + buf_cnt >= min_address) &&
+				(image.sections[i].base_address < max_address)) {
+
+			if (image.sections[i].base_address < min_address) {
+				/* clip addresses below */
+				offset += min_address-image.sections[i].base_address;
+				length -= offset;
+			}
+
+			if (image.sections[i].base_address + buf_cnt > max_address)
+				length -= (image.sections[i].base_address + buf_cnt)-max_address;
+
+			retval = target_write_buffer(target,
+					image.sections[i].base_address + offset, length, buffer + offset);
+			if (retval != ERROR_OK) {
+				free(buffer);
+				break;
+			}
+			image_size += length;
+			command_print(CMD_CTX, "%u bytes written at address 0x%8.8" PRIx32 "",
+					(unsigned int)length,
+					image.sections[i].base_address + offset);
+		}
+
+		free(buffer);
+	}
+
+	if ((ERROR_OK == retval) && (duration_measure(&bench) == ERROR_OK)) {
+		command_print(CMD_CTX, "downloaded %" PRIu32 " bytes "
+				"in %fs (%0.3f KiB/s)", image_size,
+				duration_elapsed(&bench), duration_kbps(&bench, image_size));
+	}
+
+	image_close(&image);
+
+	return retval;
+
+}
+
+
 /* ========================================================================== */
 
 static const struct command_registration leon_command_handlers[] = {
@@ -1640,6 +1880,14 @@ static const struct command_registration leon_command_handlers[] = {
 //		        "Without argument, parse all non-trivial registers.",
 //		.usage = NULL,
 //	},
+
+	{
+		.name = "load",
+		.handler = leon_load_elf_command,
+		.mode = COMMAND_EXEC,
+		.help = "Load ELF file with symbols",
+		.usage = "<filename>",
+	},
 
 /* --- */
 

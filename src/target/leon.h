@@ -7,7 +7,10 @@
 #ifndef LEON_OOCD_TARGET_HEADER_FILE
 #define LEON_OOCD_TARGET_HEADER_FILE
 
+#include <elf.h>
+
 #include <jtag/jtag.h>
+#include <helper/time_support.h>
 #include "target.h"
 #include "target_type.h"
 #include "breakpoints.h"
@@ -72,6 +75,26 @@ enum leon_trace_type {
 	LEON_TRCTYPE_BOTH,
 };
 
+struct leon_elf_section;
+typedef struct leon_elf_section {
+	uint8_t  index;
+	char    *name;
+	uint32_t type;
+	struct leon_elf_section *next;
+} leon_elf_section_t;
+
+struct leon_elf_symbol;
+typedef struct leon_elf_symbol {
+	char      *name;
+	uint32_t   value;
+	uint32_t   size;
+	uint8_t    info;
+	uint8_t    other;
+	uint8_t    secidx;
+	struct leon_elf_symbol *next;
+} leon_elf_symbol_t;
+
+
 struct leon_common {
 	struct jtag_tap *tap;
 	uint32_t   loptime; // processing time [ms] of the last operation
@@ -89,6 +112,12 @@ struct leon_common {
 	int               *rdi_to_rid; // [LEON_RID_ALLSIZE];    // map regdesc index -> RID
 //	uint32_t          rid2hwaddr[LEON_RID_ALLSIZE]; // map RID -> hw memory address
 	uint32_t          rdi2hwaddr[LEON_RID_ALLSIZE]; // map regdesc index -> hw memory address
+
+	/* loaded ELF (sections, symbols) */
+	int                 lelf_nsecs;
+	leon_elf_section_t *lelf_sects;
+	int                 lelf_nsyms;
+	leon_elf_symbol_t  *lelf_symbs;
 };
 
 static inline struct leon_common *
@@ -121,7 +150,7 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
                                    uint32_t *data, int cnt);
 
 /* -------------------------------------------------------------------------- */
-uint32_t leon_get_current_time(void);
+//uint32_t leon_get_current_time(void);
 
 /* -------------------------------------------------------------------------- */
 /* leon_disas.c */

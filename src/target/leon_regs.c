@@ -224,7 +224,9 @@ static uint32_t leon_get_addr_from_rid(struct target *tgt, uint32_t rid)
 	int retval;
 
 	retval = leon->rid_to_rdi[rid];
-	if (retval<0) return LEON_MADDR_DYNAMIC;
+	if (retval<0) {
+		return LEON_MADDR_DYNAMIC;
+	}
 	outval = leon->rdi2hwaddr[retval];
 	if (outval==LEON_MADDR_UNDEFINED) return LEON_MADDR_DYNAMIC;
 	if (outval!=LEON_MADDR_DYNAMIC) return outval;
@@ -238,7 +240,7 @@ static uint32_t leon_get_addr_from_rid(struct target *tgt, uint32_t rid)
 	plcfg = leon_get_ptrreg(tgt, LEON_RID_LCFG);
 	ppsr = leon_get_ptrreg(tgt, LEON_RID_PSR);
 
-	nwp = LEON_GET_VAL(plcfg, LEON_CFG_REG_NWINDOWS);
+	nwp = LEON_GET_VAL(plcfg, LEON_CFG_REG_NWINDOWS)+1;
 	cwp = LEON_GET_VAL(ppsr, SPARC_V8_PSR_CWP);
 	fputp = LEON_GET_VAL(plcfg, LEON_CFG_REG_FPU_TYPE);
 
@@ -253,6 +255,7 @@ static uint32_t leon_get_addr_from_rid(struct target *tgt, uint32_t rid)
 						rofs = (nwp * 64)+128 + 4*i;
 					else
 						rofs = (nwp * 64) + 4*i;
+//LOG_INFO("rofs @ %d (%u) = 0x%X (%d)", i, rid, rofs, nwp);
 					return LEON_DSU_IU_FPU_RFILE_BASE+rofs;
 				} else if (i<18) {		// read output registers
 					rofs = ((cwp * 64)+32 + 4*i)%(nwp*64);
@@ -299,10 +302,13 @@ static int leon_get_core_reg(struct reg *reg)
 	}
 
 	addr = leon_get_addr_from_rid(tgt, rid);
+//	LOG_INFO("reg addr @%u = 0x%08X", rid, addr);
 	if (addr == LEON_MADDR_DYNAMIC) return ERROR_FAIL;
+
 
 	retval = leon_jtag_get_registers(tgt, addr, reg->value, 1);
 	if (retval==ERROR_OK) {
+//LOG_INFO("rd reg @ 0x%08X = 0x%08X", addr, (uint32_t)reg->value);
 		reg->valid = 1;
 		reg->dirty = 0;
 	}
@@ -331,6 +337,7 @@ static int leon_set_core_reg(struct reg *reg, uint8_t *buf)
 	*((uint32_t *)reg->value) = value;
 	reg->dirty = 1;
 	reg->valid = 1;
+
 	retval = leon_jtag_set_registers(tgt, addr, reg->value, 1);
 	if (retval==ERROR_OK)
 		reg->dirty = 0;

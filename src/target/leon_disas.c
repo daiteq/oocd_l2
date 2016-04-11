@@ -212,15 +212,38 @@ static char *leon2_disas(leon_disas_params_t *pldp)
           plus = 1;
         }
         if (LDIS_OP3_I(o)) {
-          snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
-                   "%s%s0x%08X%s", pldp->regset[LDIS_OP3_RS1(o)],
-                   plus ? " + " : ": ",
-                   LDIS_OP3_SIMM13(o), (s<0) ? "" : "," );
+          if (plus) {
+            if (LDIS_OP3_RS1(o)==0) { /* RS1 == r0 == 0 */
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                      "0x%08X%s", LDIS_OP3_SIMM13(o), (s<0) ? "" : "," );
+            } else {
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                      "%s + 0x%08X%s", pldp->regset[LDIS_OP3_RS1(o)],
+                      LDIS_OP3_SIMM13(o), (s<0) ? "" : "," );
+            }
+          } else {
+            snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                     "%s, 0x%08X%s", pldp->regset[LDIS_OP3_RS1(o)],
+                     LDIS_OP3_SIMM13(o), (s<0) ? "" : "," );
+          }
         } else {
-          snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
-                   "%s%s%s%s", pldp->regset[LDIS_OP3_RS1(o)],
-                   plus ? " + " : ": ",
-                   pldp->regset[LDIS_OP3_RS2(o)], (s<0) ? "" : "," );
+          if (plus) {
+            if (LDIS_OP3_RS1(o)==0 || LDIS_OP3_RS2(o)==0) { /* (RS1 | RS2) == r0 == 0 */
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                       "%s%s",
+                       (LDIS_OP3_RS1(o)) ? pldp->regset[LDIS_OP3_RS1(o)]
+                                         : pldp->regset[LDIS_OP3_RS2(o)],
+                       (s<0) ? "" : "," );
+            } else {
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                       "%s + %s%s", pldp->regset[LDIS_OP3_RS1(o)],
+                       pldp->regset[LDIS_OP3_RS2(o)], (s<0) ? "" : "," );
+            }
+          } else {
+            snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                     "%s, %s%s", pldp->regset[LDIS_OP3_RS1(o)],
+                     pldp->regset[LDIS_OP3_RS2(o)], (s<0) ? "" : "," );
+          }
         }
         val = leon_disas_aux_buffer;
         switch (s) {

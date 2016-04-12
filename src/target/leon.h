@@ -80,6 +80,7 @@ typedef struct leon_elf_section {
 	uint8_t  index;
 	char    *name;
 	uint32_t type;
+	uint32_t flags;
 	struct leon_elf_section *next;
 } leon_elf_section_t;
 
@@ -97,7 +98,8 @@ typedef struct leon_elf_symbol {
 
 struct leon_common {
 	struct jtag_tap *tap;
-	uint32_t   loptime; // processing time [ms] of the last operation
+	uint32_t   loptime; // processing time [us] of the last operation
+	uint32_t   loptime_jtag; // time [us] of the last jtag operation
 
 	/* leon type */
 	enum leon_type ltype;
@@ -151,9 +153,20 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
 
 /* -------------------------------------------------------------------------- */
 //uint32_t leon_get_current_time(void);
+#define LEON_TM_START(_tmvar_)  \
+        struct duration _tmvar_; duration_start(&_tmvar_)
+#define LEON_TM_MEASURE(_tmvar_, _loptm_)  \
+        do { \
+          if (duration_measure(&_tmvar_)==ERROR_OK) \
+            _loptm_ = (uint32_t)(1000000*duration_elapsed(&_tmvar_)); \
+          else \
+            _loptm_ = 0; \
+				} while(0)
+
+char *leon_find_elf_symbol(struct leon_common *pleon, uint32_t val, const char *secname);
 
 /* -------------------------------------------------------------------------- */
 /* leon_disas.c */
-char *leon_disas(enum leon_type lt, uint32_t addr, uint32_t opcode);
+char *leon_disas(struct leon_common *pl, uint32_t addr, uint32_t opcode);
 
 #endif /* LEON_OOCD_TARGET_HEADER_FILE */

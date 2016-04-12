@@ -109,9 +109,7 @@ int leon_jtag_get_registers(struct target *target, uint32_t addr,
 		pinval = inval;
 	}
 
-	//uint32_t tin = leon_get_current_time();
-	struct duration bench;
-	duration_start(&bench);
+	LEON_TM_START(bench);
 
 	do {
 		retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
@@ -168,9 +166,8 @@ int leon_jtag_get_registers(struct target *target, uint32_t addr,
 		keep_alive(); /* keep alive gdb connection */
 	} while(0);
 
-	//leon->loptime = leon_get_current_time() - tin;
-	duration_measure(&bench);
-	leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+	LEON_TM_MEASURE(bench, leon->loptime_jtag);
+
 	if (cnt>1) free(pinval);
 	return retval;
 
@@ -191,9 +188,8 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
 	if (cnt>LEON_BLOCK_MAX_LENGTH) {
 		return ERROR_FAIL;
 	}
-	//uint32_t tin = leon_get_current_time();
-	struct duration bench;
-	duration_start(&bench);
+
+	LEON_TM_START(bench);
 
 	do {
 		retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
@@ -230,8 +226,7 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
 		keep_alive(); /* keep alive gdb connection */
 	} while(0);
 
-	//leon->loptime = leon_get_current_time() - tin;
-	duration_measure(&bench);
-	leon->loptime = (uint32_t)(1000*duration_elapsed(&bench));
+	LEON_TM_MEASURE(bench, leon->loptime_jtag);
+
 	return retval;
 }

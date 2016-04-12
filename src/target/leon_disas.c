@@ -109,10 +109,10 @@ static const char *regs_l2mt[] = {
 };
 
 typedef struct leon_disas_params {
-  enum leon_type lt;
-  uint32_t       addr;
-  uint32_t       opcode;
-  const char    **regset;
+  struct leon_common *pl;
+  uint32_t            addr;
+  uint32_t            opcode;
+  const char        **regset;
 } leon_disas_params_t;
 
 /* leon2 (sparc v8) */
@@ -150,8 +150,14 @@ static char *leon2_disas(leon_disas_params_t *pldp)
               case 7: cond = op2_cbcond[LDIS_OP2_COND(o)]; break;
             }
             if (LDIS_OP2_A(o)) annul = ",a";
-            snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
-                     "0x%08X", pldp->addr + LDIS_OP2_DISP22(o));
+            char *symb = leon_find_elf_symbol(pldp->pl, pldp->addr + LDIS_OP2_DISP22(o), ".text");
+            if (symb) {
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                       "0x%08X  (%s)", pldp->addr + LDIS_OP2_DISP22(o), symb);
+            } else {
+              snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
+                       "0x%08X", pldp->addr + LDIS_OP2_DISP22(o));
+            }
             val = leon_disas_aux_buffer;
             break;
         }
@@ -295,12 +301,12 @@ static char *leon2_disas(leon_disas_params_t *pldp)
 
 /* -------------------------------------------------------------------------- */
 /* switch according to leon type (L2,L2FT,L2MT,...) */
-char *leon_disas(enum leon_type lt, uint32_t addr, uint32_t opcode)
+char *leon_disas(struct leon_common *pl, uint32_t addr, uint32_t opcode)
 {
   leon_disas_params_t ldp = {
-    .lt = lt, .addr = addr, .opcode = opcode,
+    .pl = pl, .addr = addr, .opcode = opcode,
   };
-  switch (lt) {
+  switch (pl->ltype) {
     case LEON_TYPE_L2MT:
       ldp.regset = regs_l2mt;
       break;

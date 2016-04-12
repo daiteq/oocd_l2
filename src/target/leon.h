@@ -103,6 +103,7 @@ struct leon_common {
 
 	/* leon type */
 	enum leon_type ltype;
+	int            mt_ctlblk_size;
 
 	/* tracing */
 	enum leon_trace_type trctype;
@@ -120,6 +121,7 @@ struct leon_common {
 	leon_elf_section_t *lelf_sects;
 	int                 lelf_nsyms;
 	leon_elf_symbol_t  *lelf_symbs;
+	uint32_t            lelf_epoint;
 };
 
 static inline struct leon_common *
@@ -163,7 +165,8 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
             _loptm_ = 0; \
 				} while(0)
 
-char *leon_find_elf_symbol(struct leon_common *pleon, uint32_t val, const char *secname);
+char *leon_elf_val2sym(struct leon_common *pleon, const char *secname, uint32_t val);
+int leon_elf_sym2val(struct leon_common *pleon, const char *secname, const char *sym, uint32_t *val);
 
 /* -------------------------------------------------------------------------- */
 /* leon_disas.c */

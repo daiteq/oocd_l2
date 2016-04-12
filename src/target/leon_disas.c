@@ -150,7 +150,7 @@ static char *leon2_disas(leon_disas_params_t *pldp)
               case 7: cond = op2_cbcond[LDIS_OP2_COND(o)]; break;
             }
             if (LDIS_OP2_A(o)) annul = ",a";
-            char *symb = leon_find_elf_symbol(pldp->pl, pldp->addr + LDIS_OP2_DISP22(o), ".text");
+            char *symb = leon_elf_val2sym(pldp->pl, ".text", pldp->addr + LDIS_OP2_DISP22(o));
             if (symb) {
               snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
                        "0x%08X  (%s)", pldp->addr + LDIS_OP2_DISP22(o), symb);

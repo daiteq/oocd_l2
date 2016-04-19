@@ -10,8 +10,6 @@
 
 #include "leon.h"
 
-#include "image.h"
-
 /* -------------------------------------------------------------------------- */
 //static void leon_deinit_target(struct target *target);
 
@@ -47,135 +45,6 @@
 
 /* -------------------------------------------------------------------------- */
 /* --- Auxiliary functions -------------------------------------------------- */
-static leon_elf_section_t *leon_elf_add_section(struct leon_common *pleon,
-          int idx, char *name, uint32_t type, uint32_t flags)
-{
-	leon_elf_section_t *psec = pleon->lelf_sects, *pprev = NULL;
-	while (psec) {
-		pprev = psec;
-		psec = psec->next;
-	}
-	psec = malloc(sizeof(leon_elf_section_t));
-	if (psec == NULL) return NULL;
-	psec->index = idx;
-	psec->name = strdup(name);
-	psec->type = type;
-	psec->flags = flags;
-	psec->next = NULL;
-	if (pprev)
-		pprev->next = psec;
-	else
-		pleon->lelf_sects = psec;
-	pleon->lelf_nsecs++;
-	return psec;
-}
-
-static leon_elf_symbol_t *leon_elf_add_symbol(struct leon_common *pleon, char *name,
-          uint32_t value, uint32_t size, uint8_t info, uint8_t other, uint8_t sidx)
-{
-	leon_elf_symbol_t *psym = pleon->lelf_symbs, *pprev = NULL;
-	while (psym) {
-		pprev = psym;
-		psym = psym->next;
-	}
-	psym = malloc(sizeof(leon_elf_symbol_t));
-	if (psym == NULL) return NULL;
-	psym->name = strdup(name);
-	psym->value = value;
-	psym->size = size;
-	psym->info = info;
-	psym->other = other;
-	psym->secidx = sidx;
-	psym->next = NULL;
-	if (pprev)
-		pprev->next = psym;
-	else
-		pleon->lelf_symbs = psym;
-	pleon->lelf_nsyms++;
-	return psym;
-}
-
-static void leon_elf_reset_sections_symbols(struct leon_common *pleon)
-{
-	leon_elf_section_t *psec = pleon->lelf_sects;
-	while (psec) {
-		leon_elf_section_t *pn = psec->next;
-		if (psec->name) free(psec->name);
-		free(psec);
-		psec = pn;
-	}
-	pleon->lelf_sects = NULL;
-	pleon->lelf_nsecs = 0;
-
-	leon_elf_symbol_t *psym = pleon->lelf_symbs;
-	while (psym) {
-		leon_elf_symbol_t *pn = psym->next;
-		if (psym->name) free(psym->name);
-		free(psym);
-		psym = pn;
-	}
-	pleon->lelf_symbs = NULL;
-	pleon->lelf_nsyms = 0;
-}
-
-char *leon_elf_val2sym(struct leon_common *pleon, const char *secname, uint32_t val)
-{
-	int sidx = -1;
-	if (pleon==NULL || pleon->lelf_symbs==NULL) return NULL;
-	if (secname) {
-		if (pleon->lelf_sects==NULL) return NULL;
-		leon_elf_section_t *psec = pleon->lelf_sects;
-		while (psec) {
-			if (!strcmp(secname, psec->name)) {
-				sidx = psec->index;
-				break;
-			}
-			psec = psec->next;
-		}
-	}
-	leon_elf_symbol_t *psym = pleon->lelf_symbs;
-	while (psym) {
-		if (sidx<0 || sidx==psym->secidx) {
-			/* TODO: add check of visibility and type of symbol */
-//LOG_INFO(" - sym: '%s'", psym->name);
-			if ((ELF32_ST_TYPE(psym->info)==STT_NOTYPE) &&
-			    (psym->value==val))
-				return psym->name;
-		}
-		psym = psym->next;
-	}
-	return NULL;
-}
-
-int leon_elf_sym2val(struct leon_common *pleon, const char *secname, const char *sym, uint32_t *val)
-{
-	int sidx = -1;
-	if (pleon==NULL || pleon->lelf_symbs==NULL) return ERROR_FAIL;
-	if (secname) {
-		if (pleon->lelf_sects==NULL) return ERROR_FAIL;
-		leon_elf_section_t *psec = pleon->lelf_sects;
-		while (psec) {
-			if (!strcmp(secname, psec->name)) {
-				sidx = psec->index;
-				break;
-			}
-			psec = psec->next;
-		}
-	}
-	leon_elf_symbol_t *psym = pleon->lelf_symbs;
-	while (psym) {
-		if (sidx<0 || sidx==psym->secidx) {
-			if (!strcmp(sym, psym->name)) {
-				if (val) *val = psym->value;
-				return ERROR_OK;
-			}
-		}
-		psym = psym->next;
-	}
-	return ERROR_FAIL;
-}
-
-/* -------------------------------------------------------------------------- */
 static char *leon_type_to_string(enum leon_type ltp)
 {
 	switch (ltp) {
@@ -446,17 +315,18 @@ static inline int tbuf_to_ahb_irl(uint32_t *ptb)
 	return (int)((*(ptb+1) & LEON_DSU_TRCC_AHB_IRL_MASK)>>LEON_DSU_TRCC_AHB_IRL_SHIFT);
 }
 
-static void print_trace(struct command_context *cmd_ctx, struct leon_common *pl,
+static void print_trace(struct command_context *cmd_ctx, struct target *ptgt,
                         enum leon_trace_type tt, uint32_t *tbuf) /* tbuf = [ 127-96, 95-64, 63-32, 31-0 ] */
 {
 	if (tt==LEON_TRCTYPE_CPU) {
 		if (tbuf==NULL) {
 			command_print(cmd_ctx, "  time     address     instruction      result");
 		} else {
-			command_print(cmd_ctx, " %10u  %08X  %-30s  [%08X]",
-			              tbuf_to_time(tt, tbuf), tbuf_to_inst_pc(tbuf),
-			              leon_disas(pl, tbuf_to_inst_pc(tbuf), leon_swap_u32(tbuf_to_inst_opcode(tbuf))),
-			              tbuf_to_inst_param(tbuf));
+			int dasmt = 0;
+			const char *das = leon_disas(ptgt, tbuf_to_inst_pc(tbuf), leon_swap_u32(tbuf_to_inst_opcode(tbuf)), &dasmt);
+			command_print(cmd_ctx, " %10u  %08X %s %-30s  [%08X]",
+			              tbuf_to_time(tt, tbuf), tbuf_to_inst_pc(tbuf), (dasmt) ? "S" : " ",
+			              das, tbuf_to_inst_param(tbuf));
 		}
 	} else if (tt==LEON_TRCTYPE_AHB) {
 		if (tbuf==NULL) {
@@ -1108,7 +978,7 @@ static int leon_read_memory(struct target *target, uint32_t addr,
 	} while(0);
 
 	LEON_TM_MEASURE(bench, leon->loptime);
-	LOG_INFO("rd loptime = %u (%f)\n", leon->loptime, duration_elapsed(&bench));
+//	LOG_INFO("rd loptime = %u (%f)\n", leon->loptime, duration_elapsed(&bench));
 
 	free(pinval);
 	return retval;
@@ -1659,12 +1529,12 @@ COMMAND_HANDLER(leon_handle_hist_command)
 			rc = LEON_GET_VAL(ptrcc, LEON_DSU_TRCTRL_INST_IDX);
 		}
 		if (rc<n) n=rc;
-		print_trace(CMD_CTX, leon, leon->trctype, NULL);
+		print_trace(CMD_CTX, tgt, leon->trctype, NULL);
 		while (n>0) {
 			uint32_t addr = LEON_DSU_TRACE_BUFFER_BASE+(rc-n)*16;
 //	printf("hist addr = 0x%08X\n", addr);
 			if (leon_jtag_get_registers(tgt, addr, tbuf, 4) != ERROR_OK) break;
-			print_trace(CMD_CTX, leon, leon->trctype, tbuf);
+			print_trace(CMD_CTX, tgt, leon->trctype, tbuf);
 			n--;
 		}
 	}
@@ -1722,8 +1592,10 @@ COMMAND_HANDLER(leon_handle_disas_command)
 		char *symaddr = leon_elf_val2sym(leon, ".text", addr);
 		if (symaddr)
 			command_print(CMD_CTX, "  %s:", symaddr);
-		command_print(CMD_CTX, "%08X  %08X   %-30s", addr, opcode,
-		              leon_disas(leon, addr, opcode));
+		int mtdas = 0;
+		const char *das = leon_disas(tgt, addr, opcode, &mtdas);
+		command_print(CMD_CTX, "%08X  %08X %s %-30s", addr, opcode,
+		              mtdas ? "S" : " ", das);
 		addr += 4;
 		n--;
 	}
@@ -1731,51 +1603,124 @@ COMMAND_HANDLER(leon_handle_disas_command)
 	return ERROR_OK;
 }
 
-/* -------------------------------------------------------------------------- */
-#define elf_field16(elf, field) \
-	((elf->endianness == ELFDATA2LSB) ? \
-	le_to_h_u16((uint8_t *)&field) : be_to_h_u16((uint8_t *)&field))
-
-#define elf_field32(elf, field) \
-	((elf->endianness == ELFDATA2LSB) ? \
-	le_to_h_u32((uint8_t *)&field) : be_to_h_u32((uint8_t *)&field))
-
-static int leon_load_elf_section(struct image_elf *pie, int sidx,
-                            Elf32_Shdr **psect, void **pctx, uint32_t *ctxsz)
+COMMAND_HANDLER(leon_mem_command)
 {
-	size_t rdsz;
-	size_t ssz = elf_field16(pie, pie->header->e_shentsize);
-	int ofst = elf_field32(pie, pie->header->e_shoff) + ssz * sidx;
-	Elf32_Shdr *pnsh = (Elf32_Shdr *)realloc(*psect, ssz);
-	if (pnsh==NULL) return ERROR_FAIL;
-	*psect = pnsh;
-	int retval = fileio_seek(pie->fileio, ofst);
-	if (retval != ERROR_OK) return retval;
-	retval = fileio_read(pie->fileio, ssz, pnsh, &rdsz);
-	if (retval != ERROR_OK || rdsz != ssz) {
-		return retval;
+	uint32_t addr = 0xffffffff, size = 1;
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
 	}
-	if (pctx) { /* load also context */
-		size_t csz = elf_field32(pie, pnsh->sh_size);
-		void *pb = realloc(*pctx, csz);
-		if (pb==NULL) return ERROR_FAIL;
-		if (ctxsz) *ctxsz = csz;
-		*pctx = pb;
-		retval = fileio_seek(pie->fileio, elf_field32(pie, pnsh->sh_offset));
-		if (retval != ERROR_OK) return retval;
-		retval = fileio_read(pie->fileio, csz, pb, &rdsz);
-		if (retval != ERROR_OK || rdsz != csz) {
-			return retval;
+	leon = target_to_leon(tgt);
+	if (CMD_ARGC > 2) return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC > 0) {
+		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9')
+			addr = strtoul(CMD_ARGV[0], NULL, 0);
+		else {
+			leon_elf_symbol_t *ps = leon_elf_sym2val(leon, NULL, CMD_ARGV[0], &addr);
+			if (ps) {
+				size = (ps->size + 3) / 4; /* display the whole words */
+			}
 		}
+
+		if (CMD_ARGC > 1) {
+			size = strtoul(CMD_ARGV[1], NULL, 0);
+		}
+	} else { /* get addr from PC */
+		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
-	return retval;
+
+	//command_print(CMD_CTX,"%X %x\n", addr, size);
+	while (size) {
+		uint32_t buf[4];
+		char strbuf[4][10];
+		char chbuf[17] = "................";
+		const char *spacebuf = "        ";
+		int cnt = (size>4) ? 4 : size;
+
+		int rc = leon_read_memory(tgt, addr, 4, cnt, (uint8_t *)buf);
+		if (rc!=ERROR_OK) {
+			command_print(CMD_CTX, "! Read from target memory at 0x%08X failed (%d)",
+			              addr, rc);
+			return ERROR_FAIL;
+		}
+		snprintf(&strbuf[0][0], 10, "%08X", leon_swap_u32(buf[0]));
+		if (cnt>1) snprintf(&strbuf[1][0], 10, "%08X", leon_swap_u32(buf[1]));
+		if (cnt>2) snprintf(&strbuf[2][0], 10, "%08X", leon_swap_u32(buf[2]));
+		if (cnt>3) snprintf(&strbuf[3][0], 10, "%08X", leon_swap_u32(buf[3]));
+		for(int i = 0; i<4*cnt;++i) {
+			uint8_t c = (buf[i>>2] >> (8*(i&3))) & 0xff;
+printf("%d : %08X %d(%c)\n", i, buf[i>>2], c, c);
+			if (c>=' ') chbuf[i]=c;
+		}
+		command_print(CMD_CTX, "%08X   %s  %s  %s  %s    %s", addr, strbuf[0],
+		            (cnt>1) ? strbuf[1] : spacebuf, (cnt>2) ? strbuf[2] : spacebuf,
+		            (cnt>3) ? strbuf[3] : spacebuf, chbuf);
+		addr += cnt*4;
+		size -= cnt;
+	}
+
+	return ERROR_OK;
 }
 
-static char *leon_elf_string(char *pss, uint32_t sssz, uint32_t ofst)
+/* -------------------------------------------------------------------------- */
+COMMAND_HANDLER(leon_symbols_command)
 {
-	if (pss==NULL || sssz==0) return "";
-	if (ofst>=sssz) return "";
-	return (pss + ofst);
+	int rc = 0;
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+
+	if (CMD_ARGC>0) {
+		struct image image;
+		memset(&image, 0, sizeof(struct image));
+		if (image_open(&image, CMD_ARGV[0], "elf") != ERROR_OK) {
+			LOG_ERROR("Load ELF file with symbols failed. Try common command 'load_image'.");
+			return ERROR_OK;
+		}
+		rc = leon_load_elf_symbols(leon, &image);
+
+		if ((rc==ERROR_OK) && (leon->lelf_nsyms>0))
+			command_print(CMD_CTX, " read %u symbols", leon->lelf_nsyms);
+		image_close(&image);
+	} else {
+		leon_elf_symbol_t *ps = leon->lelf_symbs;
+		while (ps) {
+			if (ps->name && *ps->name) {
+				char sbuf[4] = {0,0,0,0};
+				switch (ELF32_ST_BIND(ps->info)) {
+					case STB_LOCAL:  sbuf[0]='l'; break;
+					case STB_GLOBAL: sbuf[0]='g'; break;
+					case STB_WEAK:   sbuf[0]='w'; break;
+					case STB_GNU_UNIQUE: sbuf[0]='u'; break;
+					case STB_NUM:    sbuf[0]='!'; break;
+					default: sbuf[0]=' '; break;
+				}
+				switch (ELF32_ST_TYPE(ps->info)) {
+					case STT_OBJECT:  sbuf[1]='O'; break;
+					case STT_FUNC:    sbuf[1]='F'; break;
+					case STT_SECTION: sbuf[1]='s'; break;
+					case STT_FILE:    sbuf[1]='f'; break;
+					case STT_COMMON:  sbuf[1]='C'; break;
+					case STT_TLS:     sbuf[1]='T'; break;
+					//case STT_GNU_IFUNC: sbuf[1]=' '; break;
+					case STT_NOTYPE:
+					default:          sbuf[1]=' '; break;
+				}
+				//command_print(CMD_CTX, "0x%08X %x,%x %s", ps->value, ps->info, ps->other, ps->name);
+				command_print(CMD_CTX, "0x%08X %s %s", ps->value, sbuf, ps->name);
+			}
+			ps = ps->next;
+		}
+	}
+	return rc;
 }
 
 COMMAND_HANDLER(leon_load_elf_command)
@@ -1785,7 +1730,6 @@ COMMAND_HANDLER(leon_load_elf_command)
 	uint32_t image_size;
 	uint32_t min_address = 0;
 	uint32_t max_address = 0xffffffff;
-	int nsym = 0;
 	int i;
 	int retval;
 	struct image image;
@@ -1807,89 +1751,7 @@ COMMAND_HANDLER(leon_load_elf_command)
 		return ERROR_OK;
 	}
 
-	/* BEGIN: loading symbols */
-	if (image.type==IMAGE_ELF) {
-		leon_elf_reset_sections_symbols(leon);
-		struct image_elf *pie = (struct image_elf *)image.type_private;
-//		LOG_INFO(">> ELF type=x%X mach=x%X ver=x%X entry=0x%08X",
-//		           elf_field16(pie, pie->header->e_type),
-//		           elf_field16(pie, pie->header->e_machine),
-//		           elf_field32(pie, pie->header->e_version),
-//		           elf_field32(pie, pie->header->e_entry));
-//		LOG_INFO("   Section header table @x%X  - esize=%u, enum=%u, stridx=%u",
-//		          elf_field32(pie, pie->header->e_shoff),
-//		          elf_field16(pie, pie->header->e_shentsize),
-//		          elf_field16(pie, pie->header->e_shnum),
-//		          elf_field16(pie, pie->header->e_shstrndx));
-		leon->lelf_epoint = elf_field32(pie, pie->header->e_entry);
-
-		Elf32_Shdr *bsec = NULL;
-		char *bstr = NULL;
-		uint32_t bstrsz = 0;
-		do {
-			/* read section with sh string table */
-			retval = leon_load_elf_section(pie,
-			                               elf_field16(pie, pie->header->e_shstrndx),
-			                               &bsec, (void **) &bstr, &bstrsz);
-			if (retval != ERROR_OK) break;
-			/* read all sections */
-			for (i=0; i<elf_field16(pie, pie->header->e_shnum); ++i) {
-				retval = leon_load_elf_section(pie, i, &bsec, NULL, NULL);
-				if (retval!=ERROR_OK) break;
-
-//				LOG_INFO(" Read section header #%d", i);
-//				LOG_INFO("  name = '%s' (%u) type=%u flags=x%X addr=x%X offs=x%X size=%u, link=%u, info=%u",
-//				         leon_elf_string(bstr, bstrsz, elf_field32(pie, bsec->sh_name)),
-//				         elf_field32(pie, bsec->sh_name), elf_field32(pie, bsec->sh_type),
-//				         elf_field32(pie, bsec->sh_flags), elf_field32(pie, bsec->sh_addr),
-//				         elf_field32(pie, bsec->sh_offset), elf_field32(pie, bsec->sh_size),
-//				         elf_field32(pie, bsec->sh_link), elf_field32(pie, bsec->sh_info));
-				if (elf_field32(pie, bsec->sh_type)==SHT_PROGBITS &&
-				    (elf_field32(pie, bsec->sh_flags) & SHF_ALLOC)) {
-					LOG_INFO(" section: %s at 0x%08X, size %u bytes",
-					      leon_elf_string(bstr, bstrsz, elf_field32(pie, bsec->sh_name)),
-					      elf_field32(pie, bsec->sh_addr), elf_field32(pie, bsec->sh_size));
-				}
-				leon_elf_add_section(leon, i,
-				                     leon_elf_string(bstr, bstrsz, elf_field32(pie, bsec->sh_name)),
-				                     elf_field32(pie, bsec->sh_type),
-				                     elf_field32(pie, bsec->sh_flags));
-				if (elf_field32(pie, bsec->sh_type)==SHT_SYMTAB) {
-					void *bstab = NULL;
-					uint32_t bstsz = 0;
-					Elf32_Shdr *bsecss = NULL;
-					char *bsymstr = NULL;
-					uint32_t bsssz = 0;
-					do {
-						retval = leon_load_elf_section(pie, i, &bsec, &bstab, &bstsz);
-						if (retval!=ERROR_OK) break;
-						retval = leon_load_elf_section(pie, elf_field32(pie, bsec->sh_link), &bsecss, (void *)&bsymstr, &bsssz);
-						if (retval!=ERROR_OK) break;
-						nsym = bstsz / elf_field32(pie, bsec->sh_entsize);
-//						LOG_INFO("  - SYMTAB ... n = %d", nsym);
-						Elf32_Sym *psym = (Elf32_Sym *)bstab;
-						int n = nsym;
-						while (n--) {
-//							LOG_INFO(" #%d: '%s'  val=x%X  sz=%u  info=%u  other=%u  sec=x%X", n,
-//							        leon_elf_string(bsymstr, bsssz, elf_field32(pie, psym->st_name)),
-//							        elf_field32(pie, psym->st_value), elf_field32(pie, psym->st_size),
-//							        psym->st_info, psym->st_other, elf_field16(pie, psym->st_shndx));
-							leon_elf_add_symbol(leon, leon_elf_string(bsymstr, bsssz, elf_field32(pie, psym->st_name)),
-							        elf_field32(pie, psym->st_value), elf_field32(pie, psym->st_size),
-							        psym->st_info, psym->st_other, elf_field16(pie, psym->st_shndx));
-							psym++;
-						}
-					} while(0);
-					if (bstab) free(bstab);
-					if (bsecss) free(bsecss);
-					if (bsymstr) free(bsymstr);
-				}
-			}
-		} while (0);
-		if (bsec) free(bsec);
-		if (bstr) free(bstr);
-	}
-	/* END: loading symbols */
+	retval = leon_load_elf_symbols(leon, &image);
 
 	image_size = 0x0;
 	retval = ERROR_OK;
@@ -1943,8 +1805,8 @@ COMMAND_HANDLER(leon_load_elf_command)
 	if ((retval==ERROR_OK) && (tmtime>0)) {
 		command_print(CMD_CTX, " total size: %" PRIu32 " bytes (%0.3f KiB/s)",
 		              image_size, duration_kbps(&bench, image_size));
-		if (nsym)
-			command_print(CMD_CTX, " read %u symbols", nsym);
+		if (leon->lelf_nsyms)
+			command_print(CMD_CTX, " read %u symbols", leon->lelf_nsyms);
 		if (leon->lelf_epoint!=0xffffffff)
 			command_print(CMD_CTX, " entry point: 0x%08X", leon->lelf_epoint);
 	}
@@ -1982,12 +1844,12 @@ static const struct command_registration leon_command_handlers[] = {
 		.handler = leon_handle_leontype_command,
 		.mode = COMMAND_EXEC,
 		.help = "With an argument, set type of LEON processor by hand (can be dangerous)."
-		        "The second argument for 'l2mt' processor set size of control block in bytes."
+		        "The second argument for 'l2mt' processor sets size of MT control block in bytes."
 		        "With or without argument, display current setting.",
 		.usage = "[unknown | l2 | l2ft | l2mt] [mtblk]",
 	},
 	{
-		.name = "parsereg",
+		.name = "preg",
 		.handler = leon_handle_parsereg_command,
 		.mode = COMMAND_EXEC,
 		.help = "With argument, name of register, get and parse this register."
@@ -2029,9 +1891,17 @@ static const struct command_registration leon_command_handlers[] = {
 		.name = "disas",
 		.handler = leon_handle_disas_command,
 		.mode = COMMAND_EXEC,
-		.help = "Disassemble memory",
+		.help = "Disassemble memory (symbol can be used)",
 		.usage = "<address> <length>",
 	},
+	{
+		.name = "mem",
+		.handler = leon_mem_command,
+		.mode = COMMAND_EXEC,
+		.help = "Display content of the memory (symbol can be used)",
+		.usage = "<address> <length> or <symbol>",
+	},
+
 //	{
 //		.name = "wmem",
 //		.handler = leon_handle_parsereg_command,
@@ -2047,6 +1917,15 @@ static const struct command_registration leon_command_handlers[] = {
 		.handler = leon_load_elf_command,
 		.mode = COMMAND_EXEC,
 		.help = "Load ELF file with symbols",
+		.usage = "<filename>",
+	},
+
+	{
+		.name = "symbols",
+		.handler = leon_symbols_command,
+		.mode = COMMAND_EXEC,
+		.help = "With argument, load symbols from alternate ELF file."
+		        "Without argument, display all symbols.",
 		.usage = "<filename>",
 	},
 

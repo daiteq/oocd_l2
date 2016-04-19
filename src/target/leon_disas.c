@@ -58,6 +58,17 @@ static const char *op32_names[] = {
   "jmpl", "rett", "t", "flush", "save", "restore", "", ""
 };
 
+static const char *op32_mt_names[] = {
+  "add", "and", "or", "xor", "sub", "andn", "orn", "xnor",
+  "addx", "", "umul", "smul", "subx", "", "udiv", "sdiv",
+  "addcc", "andcc", "orcc", "xorcc", "subcc", "andncc", "orncc", "xnorcc",
+  "addxcc", "", "umulcc", "smulcc", "subxcc", "", "udivcc", "sdivcc",
+  "taddcc", "tsubcc", "taddcctv", "tsubcctv", "mulscc", "sll", "srl", "sra",
+  "rd", "rdpsr", "rdwim", "rdtbr", "t.get.fid", "t.get.tid", "t.get.pidx", "f.get.blkidx",
+  "wr", "wr", "wr", "wr", "FPop1", "FPop2", "CPop1", "CPop2",
+  "jmpl", "rett", "t", "flush", "save", "restore", "", ""
+};
+
 static const int op32_spec_reg[] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -71,6 +82,14 @@ static const char *op33_names[] = {
   "ldf", "ldfsr", "", "lddf", "stf", "stfsr", "stdfq", "stdf", "", "", "", "", "", "", "", "",
   "ldc", "ldcsr", "", "lddc", "stc", "stcsr", "stdcq", "stdc", "", "", "", "", "", "", "", ""
 };
+
+static const char *op33_mt_names[] = {
+  "ld", "ldub", "lduh", "ldd", "st", "stb", "sth", "std", "f.alloc", "ldsb", "ldsh", "", "", "ldstub", "f.break", "swap",
+  "lda", "lduba", "lduha", "ldda", "sta", "stba", "stha", "stda", "", "ldsba", "ldsha", "", "", "ldstuba", "", "swapa",
+  "ldf", "ldfsr", "", "lddf", "stf", "stfsr", "stdfq", "stdf", "r.allocsrb", "t.allochtg", "r.write", "f.set.grdsz", "f.set.blksz", "f.mapg", "f.create", "t.wait",
+  "ldc", "ldcsr", "", "lddc", "stc", "stcsr", "stdcq", "stdc", "r.freesrb", "t.freehtg", "r.read", "f.get.grdsz", "f.get.blksz", "f.maphtg", "f.fence", "t.end"
+};
+
 static const int op33_swap_rd[] = {
   0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -113,10 +132,18 @@ typedef struct leon_disas_params {
   uint32_t            addr;
   uint32_t            opcode;
   const char        **regset;
+  uint32_t            mtcbits;
 } leon_disas_params_t;
 
-/* leon2 (sparc v8) */
-static char *leon2_disas(leon_disas_params_t *pldp)
+static struct leon_disas_mt_word_cache {
+  uint32_t addr;
+  uint32_t cw;
+} leon_disas_mt_cache = { 0xffffffff, 0};
+
+//static const char *mtswch = "-S- ";
+/* -------------------------------------------------------------------------- */
+/* leon2 (sparc v8), leon2mt */
+static char *leon2_disas(leon_disas_params_t *pldp, leon_elf_section_t *psec)
 {
   uint32_t o = pldp->opcode;
   const char *op;
@@ -169,7 +196,7 @@ static char *leon2_disas(leon_disas_params_t *pldp)
     case 1: // format 1
       op = "call";
       snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s  0x%08X",
-                op, pldp->addr + (LDIS_OP1_DISP30(o)<<2));
+              op, pldp->addr + (LDIS_OP1_DISP30(o)<<2));
       break;
 
     case 2: // format 3
@@ -210,7 +237,10 @@ static char *leon2_disas(leon_disas_params_t *pldp)
         }
       }
       if (!done) {
-        op = op32_names[LDIS_OP3(o)];
+        if (pldp->pl->ltype==LEON_TYPE_L2MT)
+          op = op32_mt_names[LDIS_OP3(o)];
+        else
+          op = op32_names[LDIS_OP3(o)];
         int s = op32_spec_reg[LDIS_OP3(o)];
         int plus = 0 ;
         if (LDIS_OP3(o)==0x3A) {
@@ -268,11 +298,15 @@ static char *leon2_disas(leon_disas_params_t *pldp)
         }
       }
 //printf("op3 = 0x%X = '%s'\n", LDIS_OP3(o), op);
-      snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s%s  %s %s", op, cond, val, reg);
+      snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s%s  %s %s",
+              op, cond, val, reg);
       break;
 
     case 3: // format 3
-      op = op33_names[LDIS_OP3(o)];
+      if (pldp->pl->ltype==LEON_TYPE_L2MT)
+        op = op33_mt_names[LDIS_OP3(o)];
+      else
+        op = op33_names[LDIS_OP3(o)];
       swaprd = op33_swap_rd[LDIS_OP3(o)];
       if (LDIS_OP3_I(o)) {
         snprintf(leon_disas_aux_buffer, LEON_DISAS_AUXBUF_SIZE,
@@ -287,9 +321,11 @@ static char *leon2_disas(leon_disas_params_t *pldp)
       val = leon_disas_aux_buffer;
       reg = pldp->regset[LDIS_OP3_RD(o)];
       if (swaprd)
-        snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s  %s%s", op, reg, val);
+        snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s  %s%s",
+                op, reg, val);
       else
-        snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s  %s%s", op, val, reg);
+        snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "%s  %s%s",
+                op, val, reg);
       break;
   }
   if (*op==0)
@@ -301,12 +337,13 @@ static char *leon2_disas(leon_disas_params_t *pldp)
 
 /* -------------------------------------------------------------------------- */
 /* switch according to leon type (L2,L2FT,L2MT,...) */
-char *leon_disas(struct leon_common *pl, uint32_t addr, uint32_t opcode)
+char *leon_disas(struct target *ptgt, uint32_t addr, uint32_t opcode, int *mtsw)
 {
+  struct leon_common *leon = target_to_leon(ptgt);
   leon_disas_params_t ldp = {
-    .pl = pl, .addr = addr, .opcode = opcode,
+    .pl = leon, .addr = addr, .opcode = opcode, .mtcbits = 0
   };
-  switch (pl->ltype) {
+  switch (leon->ltype) {
     case LEON_TYPE_L2MT:
       ldp.regset = regs_l2mt;
       break;
@@ -314,5 +351,32 @@ char *leon_disas(struct leon_common *pl, uint32_t addr, uint32_t opcode)
       ldp.regset = regs_l2;
       break;
   };
-  return leon2_disas(&ldp);
+  /* print MT CTRLBLOCK */
+  leon_elf_section_t *sec = leon_elf_addr2sec(leon, addr);
+  if (leon->ltype==LEON_TYPE_L2MT && leon->mt_ctlblk_size>0) {
+    if (sec && (sec->flags & SHF_EXECINSTR)) {
+      uint32_t cwa = addr & ~(leon->mt_ctlblk_size-1);
+      if ((addr - cwa)==0) {
+        snprintf(leon_disas_buffer, LEON_DISAS_BUFFER_SIZE, "MT CTRL WORD = 0x%08X", opcode);
+        return leon_disas_buffer;
+      } else {
+        if (leon_disas_mt_cache.addr!=cwa) { /* read new control word from the target */
+          uint32_t cw;
+          if (leon_jtag_get_registers(ptgt, cwa, &cw, 1)==ERROR_OK) {
+            leon_disas_mt_cache.addr = cwa;
+            leon_disas_mt_cache.cw = cw;
+          } else {
+            leon_disas_mt_cache.addr = 0xffffffff;
+            leon_disas_mt_cache.cw = 0;
+            return "-- MT control word reading failed --";
+          }
+        }
+        if (leon_disas_mt_cache.addr!=0xffffffff) {
+          ldp.mtcbits = (leon_disas_mt_cache.cw >> (((addr-leon_disas_mt_cache.addr)>>2)-1)) & 1;
+        }
+      }
+    }
+  }
+  if (mtsw) *mtsw = ldp.mtcbits;
+  return leon2_disas(&ldp, sec);
 }

@@ -14,6 +14,7 @@
 #include "target.h"
 #include "target_type.h"
 #include "breakpoints.h"
+#include "image.h"
 
 #include "leon_regs.h"
 
@@ -81,6 +82,8 @@ typedef struct leon_elf_section {
 	char    *name;
 	uint32_t type;
 	uint32_t flags;
+	uint32_t minaddr;
+	uint32_t maxaddr;
 	struct leon_elf_section *next;
 } leon_elf_section_t;
 
@@ -103,7 +106,7 @@ struct leon_common {
 
 	/* leon type */
 	enum leon_type ltype;
-	int            mt_ctlblk_size;
+	int            mt_ctlblk_size;  // size of MT code block [bytes]
 
 	/* tracing */
 	enum leon_trace_type trctype;
@@ -165,11 +168,16 @@ int leon_jtag_set_registers(struct target *target, uint32_t addr,
             _loptm_ = 0; \
 				} while(0)
 
+/* -------------------------------------------------------------------------- */
+/* leon_elf.c */
+void leon_elf_reset_sections_symbols(struct leon_common *pleon);
 char *leon_elf_val2sym(struct leon_common *pleon, const char *secname, uint32_t val);
-int leon_elf_sym2val(struct leon_common *pleon, const char *secname, const char *sym, uint32_t *val);
+leon_elf_symbol_t *leon_elf_sym2val(struct leon_common *pleon, const char *secname, const char *sym, uint32_t *val);
+leon_elf_section_t *leon_elf_addr2sec(struct leon_common *pleon, uint32_t addr);
+int leon_load_elf_symbols(struct leon_common *leon, struct image *image);
 
 /* -------------------------------------------------------------------------- */
 /* leon_disas.c */
-char *leon_disas(struct leon_common *pl, uint32_t addr, uint32_t opcode);
+char *leon_disas(struct target *ptgt, uint32_t addr, uint32_t opcode, int *mtsw);
 
 #endif /* LEON_OOCD_TARGET_HEADER_FILE */

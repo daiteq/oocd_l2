@@ -165,4 +165,6 @@ int leon_read_register(struct target *tgt, unsigned rid, bool force);
 int leon_read_all_registers(struct target *tgt, bool force);
 int leon_write_register(struct target *tgt, unsigned rid, uint32_t value);
 
+int leon_reg_name2rid(struct target *tgt, const char *group, const char *name);
+
 #endif /* LEON_OOCD_TARGET_REGISTERS_HEADER_FILE */

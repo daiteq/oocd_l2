@@ -41,6 +41,8 @@ static void leon_set_one_reg_cache(struct target *target, int rdi, const leon_re
 	r->type = &leon_reg_type;
 	r->arch_info = target;
 	r->exist = true;
+	r->valid = 0;
+	r->dirty = 0;
 	r->reg_data_type = malloc(sizeof(struct reg_data_type));
 	r->reg_data_type->type = lr->type;
 	/* This really depends on the calling convention in use */
@@ -77,7 +79,7 @@ struct reg_cache *leon_build_reg_cache(struct target *target)
 		leon->rdi2hwaddr[i] = LEON_MADDR_UNDEFINED;
 	}
 
-	cache->name = "LEON registers";
+	cache->name = "LEON2MT registers";
 	cache->next = NULL;
 	cache->reg_list = reg_list;
 
@@ -400,4 +402,25 @@ int leon_write_register(struct target *tgt, unsigned rid, uint32_t value)
 	buf_set_u32(bval, 0, 32, value);
 
 	return leon_set_core_reg(r, bval);
+}
+
+
+/* -------------------------------------------------------------------------- */
+int leon_reg_name2rid(struct target *tgt, const char *group, const char *name)
+{
+	struct leon_common *leon = target_to_leon(tgt);
+	struct reg *r = leon->regdesc->reg_list;
+	unsigned int i = 0;
+	if (!name) return -2;
+	while (i<leon->regdesc->num_regs) {
+		if (!group || (group && !strcmp(group, r->group))) { // no group or required group
+			if (!strcmp(name, r->name)) {
+				//LOG_INFO(">>> reg: i=%u, rdi=%d, rid=%d, nm=%s", i, r->number, leon->rdi_to_rid[r->number], r->name);
+				return leon->rdi_to_rid[r->number];
+			}
+		}
+		i++;
+		r++;
+	}
+	return -1;
 }

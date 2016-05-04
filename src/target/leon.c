@@ -1567,10 +1567,28 @@ COMMAND_HANDLER(leon_handle_disas_command)
 	leon = target_to_leon(tgt);
 	if (CMD_ARGC > 2) return ERROR_COMMAND_SYNTAX_ERROR;
 	if (CMD_ARGC > 0) {
-		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9')
+		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9') {
 			addr = strtoul(CMD_ARGV[0], NULL, 0);
-		else
-			leon_elf_sym2val(leon, ".text", CMD_ARGV[0], &addr);
+		} else if (*(CMD_ARGV[0])=='%') { // value from register name
+			int rid = leon_reg_name2rid(tgt, "iu", CMD_ARGV[0]+1);
+			if (rid<0) {
+				LOG_ERROR("Unknown IU register '%s'", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			if (leon_read_register(tgt, rid, 0)!=ERROR_OK) {
+				LOG_ERROR("Read register '%s' failed", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			uint32_t *prv = leon_get_ptrreg(tgt, rid);
+			addr = *prv;
+			//LOG_INFO(" >> rid=%d => addr=0x%08X", rid, addr);
+		} else {
+			leon_elf_symbol_t *ps = leon_elf_sym2val(leon, ".text", CMD_ARGV[0], &addr);
+			if (ps==NULL) {
+				LOG_ERROR("Unknown symbol '%s'", CMD_ARGV[0]);
+				return ERROR_FAIL;
+			}
+		}
 	}
 	if (CMD_ARGC > 1) {
 		n = strtoul(CMD_ARGV[1], NULL, 0);
@@ -1616,12 +1634,28 @@ COMMAND_HANDLER(leon_mem_command)
 	leon = target_to_leon(tgt);
 	if (CMD_ARGC > 2) return ERROR_COMMAND_SYNTAX_ERROR;
 	if (CMD_ARGC > 0) {
-		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9')
+		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9') { // direct value
 			addr = strtoul(CMD_ARGV[0], NULL, 0);
-		else {
+		} else if (*(CMD_ARGV[0])=='%') { // value from register name
+			int rid = leon_reg_name2rid(tgt, "iu", CMD_ARGV[0]+1);
+			if (rid<0) {
+				LOG_ERROR("Unknown IU register '%s'", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			if (leon_read_register(tgt, rid, 0)!=ERROR_OK) {
+				LOG_ERROR("Read register '%s' failed", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			uint32_t *prv = leon_get_ptrreg(tgt, rid);
+			addr = *prv;
+			//LOG_INFO(" >> rid=%d => addr=0x%08X", rid, addr);
+		} else { // value from symbol
 			leon_elf_symbol_t *ps = leon_elf_sym2val(leon, NULL, CMD_ARGV[0], &addr);
 			if (ps) {
 				size = (ps->size + 3) / 4; /* display the whole words */
+			} else {
+				LOG_ERROR("Unknown symbol '%s'", CMD_ARGV[0]);
+				return ERROR_FAIL;
 			}
 		}
 

@@ -596,22 +596,41 @@ static int leon_resume(struct target *target, int current, uint32_t address,
 				break;
 			}
 		}
-		LOG_WARNING("try resume (0x%08X)", *pdsu);
+		LOG_WARNING("try resume from 0x%08X(%d) (0x%08X)", address, current, *pdsu);
+		/* set PC to address if not current */
+		if (!current) {
+			leon_write_register(target, LEON_RID_NPC, address);
+		} else {
+			uint32_t *pa = leon_get_ptrreg(target, LEON_RID_NPC);
+			leon_read_register(target, LEON_RID_NPC, 1);
+			address = *pa;
+		}
+
+		target->debug_reason = DBG_REASON_NOTHALTED;
+		/* Registers are now invalid */
+		register_cache_invalidate(leon->regdesc);
+
+		/* disable break */
 		retval = leon_write_register(target, LEON_RID_DSUCTRL, *pdsu & ~LEON_DSU_CTRL_BRK_NOW);
 		if (retval!=ERROR_OK) break;
 
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
 		if (retval!=ERROR_OK) break;
 		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
-		if (target->state==TARGET_HALTED) {
-			LOG_WARNING("Target is still in the debug mode (0x%08X)", *pdsu);
-			return ERROR_TARGET_FAILURE;
-		}
+// program in the target can be finished immediately - poll can check this later
+//		if (target->state==TARGET_HALTED) {
+//			LOG_WARNING("Target is still in the debug mode (0x%08X)", *pdsu);
+//			return ERROR_TARGET_FAILURE;
+//		}
 
-		retval = target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
-		if (retval!=ERROR_OK) {
-			LOG_ERROR("error while calling callback 'TARGET_EVENT_RESUMED'");
-			return retval;
+		if (!debug_execution) {
+			target->state = TARGET_RUNNING;
+			target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
+			LOG_DEBUG("Target resumed at 0x%08" PRIx32, address);
+		} else {
+			target->state = TARGET_DEBUG_RUNNING;
+			target_call_event_callbacks(target, TARGET_EVENT_DEBUG_RESUMED);
+			LOG_DEBUG("Target debug resumed at 0x%08" PRIx32, address);
 		}
 
 		LEON_TM_MEASURE(bench, leon->loptime);
@@ -688,23 +707,21 @@ static int leon_step(struct target *target, int current,
 	return retval;
 }
 
+/* LEON2 with DSU doesn't support software controlled HW reset */
+//static int leon_assert_reset(struct target *target)
+//{
+//	target->state = TARGET_RESET;
 
-static int leon_assert_reset(struct target *target)
-{
-	target->state = TARGET_RESET;
+//	LOG_DEBUG("%s", __func__);
+//	return ERROR_OK;
+//}
+//static int leon_deassert_reset(struct target *target)
+//{
+//	target->state = TARGET_RUNNING;
 
-	LOG_DEBUG("%s", __func__);
-	return ERROR_OK;
-}
-
-
-static int leon_deassert_reset(struct target *target)
-{
-	target->state = TARGET_RUNNING;
-
-	LOG_DEBUG("%s", __func__);
-	return ERROR_OK;
-}
+//	LOG_DEBUG("%s", __func__);
+//	return ERROR_OK;
+//}
 
 int leon_soft_reset_halt(struct target *target)
 {
@@ -749,6 +766,8 @@ int leon_soft_reset_halt(struct target *target)
 		uint32_t *ppsr = leon_get_ptrreg(target, LEON_RID_PSR);
 		retval = leon_write_register(target, LEON_RID_PSR, (*ppsr & ~SPARC_V8_PSR_ET) | SPARC_V8_PSR_S);
 		retval = leon_write_register(target, LEON_RID_CCR, 0);
+	} else {
+		LOG_WARNING("The current LeonType is not fully supported.");
 	}
 //	int i;
 //	for (i = LEON_RID_R0; i <= LEON_RID_R31; ++i) {
@@ -1687,7 +1706,7 @@ COMMAND_HANDLER(leon_mem_command)
 		for(int i = 0; i<4*cnt;++i) {
 			uint8_t c = (buf[i>>2] >> (8*(i&3))) & 0xff;
 printf("%d : %08X %d(%c)\n", i, buf[i>>2], c, c);
-			if (c>=' ') chbuf[i]=c;
+			if (c>=' ' && c<127) chbuf[i]=c;
 		}
 		command_print(CMD_CTX, "%08X   %s  %s  %s  %s    %s", addr, strbuf[0],
 		            (cnt>1) ? strbuf[1] : spacebuf, (cnt>2) ? strbuf[2] : spacebuf,
@@ -1852,8 +1871,50 @@ COMMAND_HANDLER(leon_load_elf_command)
 
 COMMAND_HANDLER(leon_run_command)
 {
-	int retval = ERROR_FAIL;
-	return retval;
+	uint32_t addr = 0, cur = 1;
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+	if (CMD_ARGC > 1) return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC > 0) {
+		if (*(CMD_ARGV[0])>='0' && *(CMD_ARGV[0])<='9') {
+			addr = strtoul(CMD_ARGV[0], NULL, 0);
+			cur = 0;
+		} else if (*(CMD_ARGV[0])=='%') { // value from register name
+			int rid = leon_reg_name2rid(tgt, "iu", CMD_ARGV[0]+1);
+			if (rid<0) {
+				LOG_ERROR("Unknown IU register '%s'", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			if (leon_read_register(tgt, rid, 0)!=ERROR_OK) {
+				LOG_ERROR("Read register '%s' failed", CMD_ARGV[0]+1);
+				return ERROR_FAIL;
+			}
+			uint32_t *prv = leon_get_ptrreg(tgt, rid);
+			addr = *prv;
+			//LOG_INFO(" >> rid=%d => addr=0x%08X", rid, addr);
+			cur = 0;
+		} else {
+			leon_elf_symbol_t *ps = leon_elf_sym2val(leon, ".text", CMD_ARGV[0], &addr);
+			if (ps==NULL) {
+				LOG_ERROR("Unknown symbol '%s'", CMD_ARGV[0]);
+				return ERROR_FAIL;
+			}
+			cur = 0;
+		}
+	}
+	if (cur) { /* get addr from PC */
+		uint32_t *ppc = leon_get_ptrreg(tgt, LEON_RID_PC);
+		if (leon_read_register(tgt, LEON_RID_PC, 1)!=ERROR_OK) return ERROR_FAIL;
+		addr = *ppc;
+	}
+
+	return target_resume(tgt, cur, addr, 1, 0);
 }
 
 /* ========================================================================== */
@@ -1993,8 +2054,8 @@ struct target_type leon_target = {
 	.resume = leon_resume,
 	.step = leon_step,
 
-	.assert_reset = leon_assert_reset,
-	.deassert_reset = leon_deassert_reset,
+//	.assert_reset = leon_assert_reset,
+//	.deassert_reset = leon_deassert_reset,
 
 	.get_gdb_reg_list = leon_get_gdb_reg_list,
 

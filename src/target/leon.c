@@ -527,14 +527,18 @@ static int leon_halt(struct target *target)
 		uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
 		if (!pdsu) break;
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+//LOG_INFO(" TgtHALT RD DSUctrl x%08X", *pdsu);
 		if (retval!=ERROR_OK) break;
 		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
 		if (target->state == TARGET_HALTED) return ERROR_OK;
 		/* halt processor - break now */
-		retval = leon_write_register(target, LEON_RID_DSUCTRL, *pdsu | LEON_DSU_CTRL_BRK_NOW);
+		retval = leon_write_register(target, LEON_RID_DSUCTRL,
+		            (*pdsu & LEON_DSU_CTRL_RW_MASK) | LEON_DSU_CTRL_BRK_NOW |
+		              LEON_DSU_CTRL_BRK_IU_WPT);
 		if (retval!=ERROR_OK) break;
 
 		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+//LOG_INFO(" TgtHALT reRD DSUctrl x%08X", *pdsu);
 		if (retval!=ERROR_OK) break;
 		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
 		if (target->state!=TARGET_HALTED) {

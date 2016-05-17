@@ -155,6 +155,19 @@
 #define LEON_DSU_CTRL_TRCDLYCNT_SHIFT     (20)    /* Trace buffer delay counter (DCNT). Note that the number of bits actually implemented depends on the size of the trace buffer. */
 #define LEON_DSU_CTRL_TRCDLYCNT_MASK      (0xfff<<LEON_DSU_CTRL_TRCDLYCNT_SHIFT)
 
+#define LEON_DSU_CTRL_RW_MASK             (LEON_DSU_CTRL_TRACE_EN |            \
+                                           LEON_DSU_CTRL_DLY_CNT |             \
+                                           LEON_DSU_CTRL_BRK_TRC |             \
+                                           LEON_DSU_CTRL_FREEZE_TMR |          \
+                                           LEON_DSU_CTRL_BRK_ERR |             \
+                                           LEON_DSU_CTRL_BRK_IU_WPT |          \
+                                           LEON_DSU_CTRL_BRK_SW_BRK |          \
+                                           LEON_DSU_CTRL_BRK_NOW |             \
+                                           LEON_DSU_CTRL_BRK_DSU_BRK |         \
+                                           LEON_DSU_CTRL_BRK_TRAP |            \
+                                           LEON_DSU_CTRL_BRK_ETRAP |           \
+                                           LEON_DSU_CTRL_DLY_CNT_EN)  /* DSU control register - read-write bits */
+
 /* --- DSU Trace Buffer Control Register ------------------------------------ */
 #define LEON_DSU_TRCTRL_INST_IDX_SHIFT    (0)     /* Instruction trace index counter. */
 #define LEON_DSU_TRCTRL_INST_IDX_MASK     (0xFFF<<LEON_DSU_TRCTRL_INST_IDX_SHIFT)

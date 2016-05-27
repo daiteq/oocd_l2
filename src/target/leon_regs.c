@@ -57,7 +57,6 @@ static void leon_set_one_reg_cache(struct target *target, int rdi, const leon_re
 	leon->rdi2hwaddr[rdi] = lr->maddr;
 }
 
-
 struct reg_cache *leon_build_reg_cache(struct target *target)
 {
 	struct reg_cache **cache_p = register_get_last_cache_p(&target->reg_cache);
@@ -90,7 +89,7 @@ struct reg_cache *leon_build_reg_cache(struct target *target)
 //	leon_set_one_reg_cache(target, cnt++, leon_find_lreg(leon_peri_regs, LEON_RID_LCFG), LEON_RGRP_PERI);
 
 	/* then we add IU registers */
-	const leon_registers_t *plr = &leon_iu_regs[0];
+	const leon_registers_t *plr = &leon_iu_regs_ft[0];
 	while (plr->name) {
 		leon_set_one_reg_cache(target, cnt++, plr++, LEON_RGRP_IU);
 	}
@@ -126,6 +125,30 @@ struct reg_cache *leon_build_reg_cache(struct target *target)
 //LOG_USER("-- Added %d regs", cnt);
 	cache->num_regs = cnt;
 	return cache;
+}
+
+int leon_rename_reg_cache(struct target *target, int ltype)
+{
+	struct leon_common *leon = target_to_leon(target);
+	if (leon==NULL) return -1;
+	struct reg_cache *cache = leon->regdesc;
+	if (cache==NULL || cache->reg_list==NULL) return -2;
+
+	const leon_registers_t *pregs = NULL;
+	if (ltype==LEON_TYPE_L2MT) {
+		pregs = leon_iu_regs_mt;
+	} else {
+		pregs = leon_iu_regs_ft;
+	}
+
+	while (pregs && pregs->name) {
+		int rdi = leon->rid_to_rdi[pregs->rid]; /* rid -> rdi */
+		if (rdi<0) return -3;
+		cache->reg_list[rdi].name = pregs->name;
+		/* TODO: ??? update another items */
+		pregs++;
+	}
+	return 0;
 }
 
 

@@ -126,7 +126,8 @@ typedef struct leon_registers
 #define LEON_MADDR_UNDEFINED    0xffffffff
 #define LEON_MADDR_DYNAMIC      0xfffffffe
 
-extern const leon_registers_t leon_iu_regs[];
+extern const leon_registers_t leon_iu_regs_mt[];
+extern const leon_registers_t leon_iu_regs_ft[];
 extern const leon_registers_t leon_fpu_regs[];
 //extern const leon_registers_t leon_cu_regs[];
 extern const leon_registers_t leon_peri_regs[];
@@ -153,6 +154,7 @@ extern const leon_reg_parsed_t leon_register_description[];
 /* -------------------------------------------------------------------------- */
 struct reg_cache *leon_build_reg_cache(struct target *target);
 int leon_check_regcache(struct target *target);
+int leon_rename_reg_cache(struct target *target, int ltype);
 
 int leon_get_all_reg_list(struct target *target,
                           struct reg **reg_list[], int *reg_list_size);

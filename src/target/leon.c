@@ -1356,6 +1356,7 @@ COMMAND_HANDLER(leon_handle_leontype_command)
 	}
 
 	if (CMD_ARGC > 0) {
+		enum leon_type prevtype = leon->ltype;
 		if (!strcmp(CMD_ARGV[0], "l2"))
 			leon->ltype = LEON_TYPE_L2;
 		else if (!strcmp(CMD_ARGV[0], "l2ft"))
@@ -1375,6 +1376,9 @@ COMMAND_HANDLER(leon_handle_leontype_command)
 		} else
 //			leon->ltype = LEON_TYPE_UNKNOWN;
 			return ERROR_COMMAND_SYNTAX_ERROR;
+		if (prevtype!=leon->ltype) {
+			leon_rename_reg_cache(tgt, leon->ltype);
+		}
 	}
 
 	if (leon->ltype==LEON_TYPE_L2MT && leon->mt_ctlblk_size>0)

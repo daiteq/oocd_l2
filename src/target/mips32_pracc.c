@@ -20,9 +20,7 @@
  *   GNU General Public License for more details.                          *
  *                                                                         *
  *   You should have received a copy of the GNU General Public License     *
- *   along with this program; if not, write to the                         *
- *   Free Software Foundation, Inc.,                                       *
- *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.           *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 /*
@@ -160,19 +158,22 @@ int mips32_pracc_clean_text_jump(struct mips_ejtag *ejtag_info)
 			return retval;
 	}
 
-	if (ejtag_info->mode != 0)	/* done, queued mode won't work with lexra cores */
+	if (ejtag_info->mode != 0)	/* async mode support only for MIPS ... */
 		return ERROR_OK;
 
-	retval = mips32_pracc_read_ctrl_addr(ejtag_info);
-	if (retval != ERROR_OK)
-		return retval;
-
-	if (ejtag_info->pa_addr != MIPS32_PRACC_TEXT) {			/* LEXRA/BMIPS ?, shift out another NOP */
-		mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA);
-		mips_ejtag_drscan_32_out(ejtag_info, MIPS32_NOP);
-		retval = mips32_pracc_finish(ejtag_info);
+	for (int i = 0; i != 2; i++) {
+		retval = mips32_pracc_read_ctrl_addr(ejtag_info);
 		if (retval != ERROR_OK)
 			return retval;
+
+		if (ejtag_info->pa_addr != MIPS32_PRACC_TEXT) {		/* LEXRA/BMIPS ?, shift out another NOP, max 2 */
+			mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA);
+			mips_ejtag_drscan_32_out(ejtag_info, MIPS32_NOP);
+			retval = mips32_pracc_finish(ejtag_info);
+			if (retval != ERROR_OK)
+				return retval;
+		} else
+			break;
 	}
 
 	return ERROR_OK;

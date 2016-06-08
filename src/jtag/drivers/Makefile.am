@@ -144,6 +144,8 @@ if CMSIS_DAP
 DRIVERFILES += cmsis_dap_usb.c
 endif
 
+DRIVERFILES += xpcu2.c
+
 noinst_HEADERS = \
 	bitbang.h \
 	bitq.h \

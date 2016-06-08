@@ -131,6 +131,7 @@ extern struct jtag_interface bcm2835gpio_interface;
 #if BUILD_CMSIS_DAP == 1
 extern struct jtag_interface cmsis_dap_interface;
 #endif
+extern struct jtag_interface xpcu_interface;
 #endif /* standard drivers */
 
 /**
@@ -230,6 +231,7 @@ struct jtag_interface *jtag_interfaces[] = {
 #if BUILD_CMSIS_DAP == 1
 		&cmsis_dap_interface,
 #endif
+		&xpcu_interface,
 #endif /* standard drivers */
 		NULL,
 	};

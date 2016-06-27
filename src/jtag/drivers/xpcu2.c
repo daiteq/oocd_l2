@@ -250,6 +250,11 @@ static int xpcu2_usb_close(xpcu2_private_t *pxd)
 {
 	LOG_DEBUG("usb close");
 	if (!pxd) return ERROR_FAIL;
+	// send finish cmd
+	int rc = xpcu2_usb_finish_queue(pxd->udev);
+	if (rc!=0) {
+		LOG_ERROR("send finish cmd %d", rc);
+	}
 	jtag_libusb_close(pxd->udev);
 	pxd->udev = NULL;
 	return ERROR_OK;
@@ -259,6 +264,8 @@ static int xpcu2_usb_close(xpcu2_private_t *pxd)
 static int xpcu2_usb_flush_queue(xpcu2_private_t *pxd)
 {
 	int rc = ERROR_OK;
+	// start JTAG transactions
+	xpcu2_usb_start_queue(xpcu2_data->udev); // , xpcu2_data->cur_speed_idx);
 	// set length of data (bits-1)
 	if (pxd->queue_length>0) do {
 		rc = jtag_libusb_control_transfer(pxd->udev,
@@ -278,15 +285,30 @@ static int xpcu2_usb_flush_queue(xpcu2_private_t *pxd)
 			rc = ERROR_OK;
 		}
 		if (pxd->queue_insz>0) {
-			int sz = (pxd->queue_insz + 7)/8;
-			LOG_INFO("XPCU-jtag rd %d bits ... %d bytes", pxd->queue_insz, sz);
+			int sz = (pxd->queue_insz + 15)/15; // TDO is returned in 16bit words
+//			LOG_INFO("XPCU-jtag rd %d bits ... %d words", pxd->queue_insz, sz);
 			rc = jtag_libusb_bulk_read(pxd->udev, pxd->epbin, (char *) pxd->queue_inbuf, QUEUE_BUF_CAP, XPCU_USB_TIMEOUT);
 			pxd->queue_read = rc;
-			if (rc!=sz) {
+			if (rc<sz || (rc & 1)) { // read back from XPCU by 16bit only
 				LOG_WARNING("flush queue (r3 - %d , %d->%d)", rc, pxd->queue_insz, sz);
 //				break;
 			} else {
-				/* copy to output buffer */
+//				xpcu_debug_buffer(pxd->queue_inbuf, pxd->queue_read);
+				if (pxd->queue_insz&0x1f) {
+					if (!(pxd->queue_insz&0x10)) {
+						int n = 16-(pxd->queue_insz&0x0f);
+						uint16_t *pw = ((uint16_t *)pxd->queue_inbuf) + (pxd->queue_insz>>4);
+//						LOG_INFO(" - The MSB(16) must be shifted to right position (%d - %d)", pxd->queue_insz, n);
+						*pw = *pw >> n;
+					} else {
+						if (pxd->queue_insz&0x1F) {
+							int n = 32-(pxd->queue_insz&0x1f);
+							uint32_t *pw = ((uint32_t *)pxd->queue_inbuf) + (pxd->queue_insz>>5);
+//							LOG_INFO(" - The MSB(32) must be shifted to right position (%d - %d)", pxd->queue_insz, n);
+							*pw = *pw >> n;
+						}
+					}
+				}
 				rc = ERROR_OK;
 			}
 		}
@@ -297,24 +319,42 @@ static int xpcu2_usb_flush_queue(xpcu2_private_t *pxd)
 		uint8_t st;
 		rc = xpcu2_usb_get_state(pxd->udev, &st);
 		/* TODO: check state */
-		LOG_INFO("check state 0x%02X", st);
+//		LOG_INFO("check state 0x%02X", st);
 
 		/* copy TDO from buffers */
+		/* TODO */
 		if (pxd->queue_scansz) {
-			int i, ofst = 0;
-			xpcu_debug_buffer(pxd->queue_inbuf, pxd->queue_read);
+			int i, ofst = 0; /* first bit in response is the MSB */
+//			xpcu_debug_buffer(pxd->queue_inbuf, pxd->queue_read);
+			uint8_t *pbcur;
+			if (pxd->queue_scansz>1) {
+				int maxsz = 0;
+				for (int j=0; j<pxd->queue_scansz;++j) {
+					if (pxd->queue_scans[j].length>maxsz) maxsz=pxd->queue_scans[j].length;
+				}
+				pbcur = calloc(DIV_ROUND_UP(maxsz, 8), 1);
+			} else {
+				pbcur = pxd->queue_inbuf;
+			}
+			// divide input data according to queue
 			for (i=0;i<pxd->queue_scansz;++i) {
-				if (ofst>=pxd->queue_read) {
+				if (ofst<0) {
 					rc = ERROR_JTAG_QUEUE_FAILED;
 					break;
 				}
-				LOG_INFO("return scan #%d from %d, l=%d", i, ofst, pxd->queue_scans[i].length);
-				if (jtag_read_buffer(&pxd->queue_inbuf[ofst], pxd->queue_scans[i].command) != ERROR_OK) {
+				if (pxd->queue_scansz>1) {
+					buf_set_buf(pxd->queue_inbuf, ofst, pbcur, 0, pxd->queue_scans[i].length);
+				}
+//				LOG_INFO("return scan #%d from %d, l=%d (x%08X)", i, ofst, pxd->queue_scans[i].length, *(uint32_t *)pbcur & (((uint32_t)1<<pxd->queue_scans[i].length)-1) );
+				if (jtag_read_buffer(pbcur, pxd->queue_scans[i].command) != ERROR_OK) {
 					xpcu_tap_init(pxd);
 					rc = ERROR_JTAG_QUEUE_FAILED;
 					break;
 				}
-				ofst += (pxd->queue_scans[i].length + 7)/8; /* go to next returned stream */
+				ofst += pxd->queue_scans[i].length; /* go to next returned stream */
+			}
+			if (pxd->queue_scansz>1) {
+				free(pbcur);
 			}
 		}
 	}
@@ -364,44 +404,32 @@ void xpcu_tap_append_step(xpcu2_private_t *pxd, int tms, int tdi, int rd, int wr
 	if (nextbit==0) pxd->queue_outsz += 2; /* increment output bytes */
 	if (rd) pxd->queue_insz++; /* increment required input bits */
 	pxd->queue_length++; /* increment bits in queue */
+//LOG_INFO("STEP: %d - %d (m=%u) %d , %d - tms=%d, tdi=%d, rd=%d, wr=%d", nextword, nextbit, msk, pxd->queue_length, pxd->queue_insz, tms, tdi, rd, wr);
 }
 
 void xpcu_tap_append_scan(xpcu2_private_t *pxd, int rd, int wr, int length, uint8_t *buffer)
 {
-	int i;
-
-#if 1
-	// align to full 32bit words only the entire stream
-	for (i = 0;i < length;++i) {
-		xpcu_tap_append_step(pxd, 0, (buffer[i / 8] >> (i % 8)) & 1, rd, wr);
-	}
-	// padding
-	while ((pxd->queue_length & 3)<3) { /* scan ?must be? aligned to 4bit nibbles */
-		xpcu_tap_append_step(pxd, 0, 0, 0, 0);
-	}
-#else
-	int acnt = 0, j = 0;
-	// align each 32bit words
-	for (i=0;i<length-1;++i) {
-		if (acnt==30 && j<3) {
-			xpcu_tap_append_step(pxd, 0, 0, 0, 0);
+	int i = 0; // pocitadlo celeho retezce
+	int j = 0; // pocitadlo bitu v bajtu
+	int w = 0; // pocitadlo bitu ve slove pri cteni pro zarovnani kazdeho slova na cely bajt
+	while (i<length) {
+		j = pxd->queue_length & 0x03;
+		if (rd && (w==31 || (i==length-1)) && j!=3) {
+			xpcu_tap_append_step(pxd, 0, 1, 0, 0);
+//			LOG_INFO("Add pad i=%d/%d,w=%d,j=%d", i, length, w, j);
 		} else {
-			xpcu_tap_append_step(pxd, 0, (buffer[i / 8] >> (i % 8)) & 1, rd, wr);
-			if (rd) {
-				if (++acnt==32) acnt=0;
-			}
+			int tms = (i==length-1) ? 1 : 0; // konec retezce
+			xpcu_tap_append_step(pxd, tms, (buffer[i / 8] >> (i % 8)) & 1, rd, wr);
+//			LOG_INFO("Add tdo i=%d/%d,w=%d,j=%d - tms=%d", i, length, w, j, tms);
+			i++;
+			if (++w==32) w = 0;
 		}
-		if (++j==4) j = 0; // pocitadlo bitu v ramci byte
+		//if (++j==4) j = 0;
 	}
-#endif
 
-	i = length-1;
-//	xpcu_tap_append_step(pxd, 1, 0, 0, wr);
-	xpcu_tap_append_step(pxd, 1, (buffer[i / 8] >> (i % 8)) & 1, rd, wr);
 	tapcnt += length;
-	LOG_INFO("Appended scan (rd=%d,wr=%d,l=%d)", rd, wr, length);
-	xpcu_debug_buffer(pxd->queue_outbuf, pxd->queue_outsz);
-//	xpcu_tap_append_step(pxd, 0, 0, 0, 0);
+//	LOG_INFO("Appended scan (rd=%d,wr=%d,l=%d)", rd, wr, length);
+//	xpcu_debug_buffer(pxd->queue_outbuf, pxd->queue_outsz);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -507,14 +535,14 @@ int xpcu_scan(xpcu2_private_t *pxd, struct scan_command *scmd)
 	int scan_size, rd, wr;
 	uint8_t *buffer = NULL;
 
-	LOG_INFO("scan nfld = %d", scmd->num_fields);
+//	LOG_INFO("scan nfld = %d", scmd->num_fields);
 	for (rd=0;rd<scmd->num_fields;++rd) {
-		LOG_INFO("  #%d: nbits=%d", rd, scmd->fields[rd].num_bits);
+//		LOG_INFO("  #%d: nbits=%d", rd, scmd->fields[rd].num_bits);
 	}
 
 	scan_size = jtag_build_buffer(scmd, &buffer);
-	LOG_INFO("scan input, length = %d", scan_size);
-	xpcu_debug_buffer(buffer, (scan_size + 7) / 8);
+//	LOG_INFO("scan input, length = %d", scan_size);
+//	xpcu_debug_buffer(buffer, (scan_size + 7) / 8);
 	saved_end_state = tap_get_end_state();
 
 	switch (jtag_scan_type(scmd)) {
@@ -561,75 +589,73 @@ static int xpcu_execute_queue(void)
 	struct jtag_command *cmd;
 	int ret = ERROR_OK;
 
-LOG_INFO("execQ: l=%d, osz=%d, isz=%d, rd=%d, ssz=%d",
-           xpcu2_data->queue_length, xpcu2_data->queue_outsz,
-           xpcu2_data->queue_insz, xpcu2_data->queue_read,
-           xpcu2_data->queue_scansz);
+//LOG_INFO("execQ: l=%d, osz=%d, isz=%d, rd=%d, ssz=%d, TAPst = %s",
+//           xpcu2_data->queue_length, xpcu2_data->queue_outsz,
+//           xpcu2_data->queue_insz, xpcu2_data->queue_read,
+//           xpcu2_data->queue_scansz, tap_state_name(tap_get_state()));
 
 	if (jtag_command_queue) {
-		// start JTAG transactions
-		xpcu2_usb_start_queue(xpcu2_data->udev); // , xpcu2_data->cur_speed_idx);
 		// prepare transactions from cmd_queue
 		for (cmd=jtag_command_queue; ret==ERROR_OK && cmd!=NULL; cmd=cmd->next) {
 			switch (cmd->type) {
-			case JTAG_RESET:
-				LOG_DEBUG("reset trst: %i srst %i", cmd->cmd.reset->trst, cmd->cmd.reset->srst);
-				xpcu_reset(xpcu2_data, cmd->cmd.reset->trst, cmd->cmd.reset->srst);
-				/* TODO: tady se asi jen nastavuji signaly trst a srst na hodnotu, nemelo by se jit do TLR v BSCANu */
-				break;
-			case JTAG_RUNTEST:
-				LOG_DEBUG("runtest %i cycles, end in %i", cmd->cmd.runtest->num_cycles, cmd->cmd.runtest->end_state);
-				if (cmd->cmd.runtest->end_state != -1)
-					xpcu_end_state(cmd->cmd.runtest->end_state);
-				xpcu_runtest(xpcu2_data, cmd->cmd.runtest->num_cycles);
-				break;
-			case JTAG_TLR_RESET:
-				LOG_DEBUG("statemove end in %i", cmd->cmd.statemove->end_state);
-				if (cmd->cmd.statemove->end_state != -1) {
-					if (xpcu_end_state(cmd->cmd.statemove->end_state)) {
-						ret = ERROR_JTAG_NOT_STABLE_STATE;
+				case JTAG_RESET:
+					LOG_DEBUG("reset trst: %i srst %i", cmd->cmd.reset->trst, cmd->cmd.reset->srst);
+					xpcu_reset(xpcu2_data, cmd->cmd.reset->trst, cmd->cmd.reset->srst);
+					/* TODO: tady se asi jen nastavuji signaly trst a srst na hodnotu, nemelo by se jit do TLR v BSCANu */
+					break;
+				case JTAG_RUNTEST:
+					LOG_DEBUG("runtest %i cycles, end in %i", cmd->cmd.runtest->num_cycles, cmd->cmd.runtest->end_state);
+					if (cmd->cmd.runtest->end_state != -1)
+						xpcu_end_state(cmd->cmd.runtest->end_state);
+					xpcu_runtest(xpcu2_data, cmd->cmd.runtest->num_cycles);
+					break;
+				case JTAG_TLR_RESET:
+					LOG_DEBUG("statemove end in %i", cmd->cmd.statemove->end_state);
+					if (cmd->cmd.statemove->end_state != -1) {
+						if (xpcu_end_state(cmd->cmd.statemove->end_state)) {
+							ret = ERROR_JTAG_NOT_STABLE_STATE;
+							break;
+						}
+					}
+					xpcu_state_move(xpcu2_data);
+					break;
+				case JTAG_PATHMOVE:
+					LOG_DEBUG("pathmove: %i states, end in %i",
+										cmd->cmd.pathmove->num_states,
+										cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]);
+					if (xpcu_path_move(xpcu2_data, cmd->cmd.pathmove->num_states, cmd->cmd.pathmove->path)) {
+						ret = ERROR_JTAG_TRANSITION_INVALID;
 						break;
 					}
-				}
-				xpcu_state_move(xpcu2_data);
-				break;
-			case JTAG_PATHMOVE:
-				LOG_DEBUG("pathmove: %i states, end in %i",
-				          cmd->cmd.pathmove->num_states,
-				          cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]);
-				if (xpcu_path_move(xpcu2_data, cmd->cmd.pathmove->num_states, cmd->cmd.pathmove->path)) {
-					ret = ERROR_JTAG_TRANSITION_INVALID;
 					break;
-				}
-				break;
-			case JTAG_SLEEP:
-				LOG_DEBUG("sleep %i", cmd->cmd.sleep->us);
-				jtag_sleep(cmd->cmd.sleep->us);
-				break;
-			case JTAG_TMS:
-				LOG_DEBUG("add %d jtag tms", cmd->cmd.tms->num_bits);
-				xpcu_tms(xpcu2_data, cmd->cmd.tms);
-				break;
-			case JTAG_SCAN:
-				LOG_DEBUG("%s scan end in %i", (cmd->cmd.scan->ir_scan) ? "IR" : "DR", cmd->cmd.scan->end_state);
-				if (cmd->cmd.scan->end_state != -1)
-					xpcu_end_state(cmd->cmd.scan->end_state);
-				xpcu_scan(xpcu2_data, cmd->cmd.scan);
-				break;
+				case JTAG_SLEEP:
+					LOG_DEBUG("sleep %i", cmd->cmd.sleep->us);
+					jtag_sleep(cmd->cmd.sleep->us);
+					break;
+				case JTAG_TMS:
+					LOG_DEBUG("add %d jtag tms", cmd->cmd.tms->num_bits);
+					xpcu_tms(xpcu2_data, cmd->cmd.tms);
+					break;
+				case JTAG_SCAN:
+					LOG_DEBUG("%s scan end in %i", (cmd->cmd.scan->ir_scan) ? "IR" : "DR", cmd->cmd.scan->end_state);
+					if (cmd->cmd.scan->end_state != -1)
+						xpcu_end_state(cmd->cmd.scan->end_state);
+					xpcu_scan(xpcu2_data, cmd->cmd.scan);
+					break;
 
-			default:
-				LOG_ERROR("BUG: unknown JTAG command type encountered (%d)", cmd->type);
-				ret = ERROR_JTAG_NOT_IMPLEMENTED;
-				break;
+				default:
+					LOG_ERROR("BUG: unknown JTAG command type encountered (%d)", cmd->type);
+					ret = ERROR_JTAG_NOT_IMPLEMENTED;
+					break;
 			}
+			//
+			xpcu2_usb_flush_queue(xpcu2_data);
+			/* reset queue */
+			xpcu_tap_init(xpcu2_data);
 		}
-		//
-		xpcu2_usb_flush_queue(xpcu2_data);
-		/* reset queue */
-		xpcu_tap_init(xpcu2_data);
 
 		// finish JTAG transactions
-		xpcu2_usb_finish_queue(xpcu2_data->udev);
+		//xpcu2_usb_finish_queue(xpcu2_data->udev);
 	}
 	return ret;
 }

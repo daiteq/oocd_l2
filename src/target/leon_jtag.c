@@ -10,6 +10,8 @@
 
 #include "leon.h"
 
+//static uint8_t ir_ret_val[32];
+
 int leon_jtag_set_instr(struct jtag_tap *tap, uint32_t new_instr, int forced)
 {
 	if (tap == NULL) return ERROR_FAIL;
@@ -21,12 +23,13 @@ int leon_jtag_set_instr(struct jtag_tap *tap, uint32_t new_instr, int forced)
 		void *t = calloc(DIV_ROUND_UP(field.num_bits, 8), 1);
 		field.out_value = t;
 		buf_set_u32(t, 0, field.num_bits, new_instr);
-		field.in_value = NULL;
+		field.in_value = NULL; // ir_ret_val;
 
 		jtag_add_ir_scan(tap, &field, TAP_IDLE);
 
 		free(t);
 	}
+	//return jtag_execute_queue();
 	return ERROR_OK;
 }
 

@@ -390,29 +390,54 @@ static int leon_examine(struct target *target)
 {
 	int retval = ERROR_OK, rc;
 	struct leon_common *leon = target_to_leon(target);
-	uint32_t dsnd[2] = {LEON_PID_CONTROL | LEON_CTRL_RAT_DSU, LEON_PID_PAD | 0x81};
-	uint32_t drcv;
+#define LEON_EXAMINE_WORDS 2
+	//uint32_t dsnd[2] = {LEON_PID_CONTROL | LEON_CTRL_RAT_DSU, LEON_PID_PAD | 0x81};
+	uint32_t dsnd[LEON_EXAMINE_WORDS] = {LEON_PID_CONTROL | LEON_CTRL_RAT_DSU, LEON_PID_CONTROL | LEON_CTRL_RAT_DSU};
+	uint32_t drcv[LEON_EXAMINE_WORDS];
 
 	LOG_DEBUG("LEONexam (%s)", __func__);
 
 	LEON_TM_START(bench);
 
 	/* Reestablish communication after target reset */
+//{
+//	struct scan_field field;
+//	uint8_t inval[4], outval[4];
+
+//	rc = leon_jtag_set_instr(leon->tap, LEON_IRINS_IDCODE, 1);
+
+//	field.num_bits = 32;		// USER1 register
+//	field.out_value = outval;
+//	field.in_value = inval;
+//	buf_set_u32(outval, 0, 32, 0x12345678);
+//	jtag_add_dr_scan(leon->tap, 1, &field, TAP_IDLE);
+//	jtag_execute_queue();
+//	buf_set_u32(outval, 0, 32, 0xaa66553c);
+//	jtag_add_dr_scan(leon->tap, 1, &field, TAP_IDLE);
+//	jtag_execute_queue();
+////	return ERROR_FAIL;
+//}
+
 	/* forced enter to BS USER1 register */
-	retval = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
+	rc = leon_jtag_set_instr(leon->tap, LEON_IRINS_ENTER, 1);
 	/* reset internal fsm */
 	retval = ERROR_TARGET_NOT_EXAMINED;
 	do {
-		rc = leon_jtag_exchng_data(leon->tap, dsnd, 2, &drcv, 1, 1); // reset L2 DSU
+		if (rc!=ERROR_OK) {
+			LOG_ERROR("set IR to UCD failed (%d)", rc);
+			break;
+		} 
+		//rc = leon_jtag_exchng_data(leon->tap, dsnd, LEON_EXAMINE_WORDS, &drcv, 1, 1); // reset L2 DSU
+		rc = leon_jtag_exchng_data(leon->tap, dsnd, LEON_EXAMINE_WORDS, drcv, LEON_EXAMINE_WORDS, 0); // reset L2 DSU
 		if (rc!=ERROR_OK) {
 			LOG_ERROR("LEONexam (%s): exchange data failed (0x%04X)", leon->tap->dotted_name, rc);
 			break;
 		}
-		if (drcv!=LEON_STAT_TESTWORD) {
-			LOG_WARNING("LEONexam (%s): bad TESTWORD (0x%04X)", leon->tap->dotted_name, drcv);
+		if (drcv[1]!=LEON_STAT_TESTWORD) {
+			LOG_WARNING("LEONexam (%s): bad TESTWORD (0x%04X)", leon->tap->dotted_name, drcv[1]);
 			break;
 		} else {
-			LOG_DEBUG("LEONexam (%s): TESTWORD is OK (0x%04X)", leon->tap->dotted_name, drcv);
+			LOG_DEBUG("LEONexam (%s): TESTWORD is OK (0x%04X)", leon->tap->dotted_name, drcv[1]);
 		}
 
 //		rc = leon_read_all_registers(target, 1);
@@ -496,7 +521,10 @@ static int leon_poll(struct target *target)
 //	struct leon_common *leon = target_to_leon(target);
 //	uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
 
-	if (!target_was_examined(target)) return ERROR_OK;
+	if (!target_was_examined(target)) {
+		LOG_WARNING("Target hasn't been examined yet\n");
+		return ERROR_OK;
+	}
 
 	retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
 	if (retval==ERROR_OK) {
@@ -507,7 +535,11 @@ static int leon_poll(struct target *target)
 		target->debug_reason = DBG_REASON_UNDEFINED;
 		return ERROR_FAIL;
 	}
+enum target_state lst = target->state;
 	leon_check_state_and_reason(target, &target->state, &target->debug_reason);
+if (lst!=target->state) {
+	LOG_INFO("Target state changed from %d to %d\n", lst, target->state);
+}
 	return ERROR_OK;
 }
 
@@ -715,15 +747,13 @@ static int leon_step(struct target *target, int current,
 //static int leon_assert_reset(struct target *target)
 //{
 //	target->state = TARGET_RESET;
-
-//	LOG_DEBUG("%s", __func__);
+//	LOG_INFO("%s", __func__);
 //	return ERROR_OK;
 //}
 //static int leon_deassert_reset(struct target *target)
 //{
 //	target->state = TARGET_RUNNING;
-
-//	LOG_DEBUG("%s", __func__);
+//	LOG_INFO("%s", __func__);
 //	return ERROR_OK;
 //}
 
@@ -1314,7 +1344,7 @@ COMMAND_HANDLER(leon_handle_loptime_command)
 		return ERROR_FAIL;
 	}
 	leon = target_to_leon(tgt);
-	command_print(CMD_CTX, "Time of the last LEON operation : %u ms.", leon->loptime);
+	command_print(CMD_CTX, "Time of the last LEON operation : %u us.", leon->loptime);
 	return ERROR_OK;
 }
 

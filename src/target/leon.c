@@ -1202,9 +1202,8 @@ static int leon_checksum_memory(struct target *t, uint32_t a, uint32_t s,
 	return ERROR_FAIL;
 }
 
-
 static int leon_blank_check_memory(struct target *target, uint32_t address,
-		uint32_t count, uint32_t *blank)
+		uint32_t count, uint32_t *blank, uint8_t erased_value)
 {
 	LOG_WARNING("Not implemented: %s", __func__);
 	return ERROR_OK;

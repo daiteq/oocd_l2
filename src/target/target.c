@@ -535,7 +535,7 @@ int target_poll(struct target *target)
 		if (target->state == TARGET_HALTED)
 			target->halt_issued = false;
 		else {
-			long long t = timeval_ms() - target->halt_issued_time;
+			int64_t t = timeval_ms() - target->halt_issued_time;
 			if (t > DEFAULT_HALT_TIMEOUT) {
 				target->halt_issued = false;
 				LOG_INFO("Halt timed out, wake up GDB.");
@@ -1015,6 +1015,15 @@ int target_run_flash_async_algorithm(struct target *target,
 	if (retval2 != ERROR_OK) {
 		LOG_ERROR("error waiting for target flash write algorithm");
 		retval = retval2;
+	}
+
+	if (retval == ERROR_OK) {
+		/* check if algorithm set rp = 0 after fifo writer loop finished */
+		retval = target_read_u32(target, rp_addr, &rp);
+		if (retval == ERROR_OK && rp == 0) {
+			LOG_ERROR("flash write algorithm aborted by target");
+			retval = ERROR_FLASH_OPERATION_FAILED;
+		}
 	}
 
 	return retval;
@@ -2016,8 +2025,8 @@ static int target_profiling_default(struct target *target, uint32_t *samples,
  */
 int target_write_buffer(struct target *target, uint32_t address, uint32_t size, const uint8_t *buffer)
 {
-	LOG_DEBUG("writing buffer of %i byte at 0x%8.8x",
-			(int)size, (unsigned)address);
+	LOG_DEBUG("writing buffer of %" PRIi32 " byte at 0x%8.8" PRIx32,
+			  size, address);
 
 	if (!target_was_examined(target)) {
 		LOG_ERROR("Target not examined yet");
@@ -2028,10 +2037,10 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size, 
 		return ERROR_OK;
 
 	if ((address + size - 1) < address) {
-		/* GDB can request this when e.g. PC is 0xfffffffc*/
-		LOG_ERROR("address + size wrapped(0x%08x, 0x%08x)",
-				  (unsigned)address,
-				  (unsigned)size);
+		/* GDB can request this when e.g. PC is 0xfffffffc */
+		LOG_ERROR("address + size wrapped (0x%08" PRIx32 ", 0x%08" PRIx32 ")",
+				  address,
+				  size);
 		return ERROR_FAIL;
 	}
 
@@ -2077,8 +2086,8 @@ static int target_write_buffer_default(struct target *target, uint32_t address, 
  */
 int target_read_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
 {
-	LOG_DEBUG("reading buffer of %i byte at 0x%8.8x",
-			  (int)size, (unsigned)address);
+	LOG_DEBUG("reading buffer of %" PRIi32 " byte at 0x%8.8" PRIx32,
+			  size, address);
 
 	if (!target_was_examined(target)) {
 		LOG_ERROR("Target not examined yet");
@@ -2089,8 +2098,8 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
 		return ERROR_OK;
 
 	if ((address + size - 1) < address) {
-		/* GDB can request this when e.g. PC is 0xfffffffc*/
-		LOG_ERROR("address + size wrapped(0x%08" PRIx32 ", 0x%08" PRIx32 ")",
+		/* GDB can request this when e.g. PC is 0xfffffffc */
+		LOG_ERROR("address + size wrapped (0x%08" PRIx32 ", 0x%08" PRIx32 ")",
 				  address,
 				  size);
 		return ERROR_FAIL;
@@ -2147,7 +2156,7 @@ int target_checksum_memory(struct target *target, uint32_t address, uint32_t siz
 	if (retval != ERROR_OK) {
 		buffer = malloc(size);
 		if (buffer == NULL) {
-			LOG_ERROR("error allocating buffer for section (%d bytes)", (int)size);
+			LOG_ERROR("error allocating buffer for section (%" PRId32 " bytes)", size);
 			return ERROR_COMMAND_SYNTAX_ERROR;
 		}
 		retval = target_read_buffer(target, address, size, buffer);
@@ -2172,7 +2181,8 @@ int target_checksum_memory(struct target *target, uint32_t address, uint32_t siz
 	return retval;
 }
 
-int target_blank_check_memory(struct target *target, uint32_t address, uint32_t size, uint32_t* blank)
+int target_blank_check_memory(struct target *target, uint32_t address, uint32_t size, uint32_t* blank,
+	uint8_t erased_value)
 {
 	int retval;
 	if (!target_was_examined(target)) {
@@ -2183,7 +2193,7 @@ int target_blank_check_memory(struct target *target, uint32_t address, uint32_t 
 	if (target->type->blank_check_memory == 0)
 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
 
-	retval = target->type->blank_check_memory(target, address, size, blank);
+	retval = target->type->blank_check_memory(target, address, size, blank, erased_value);
 
 	return retval;
 }
@@ -2248,7 +2258,7 @@ int target_read_u16(struct target *target, uint32_t address, uint16_t *value)
 
 	if (retval == ERROR_OK) {
 		*value = target_buffer_get_u16(target, value_buf);
-		LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%4.4x",
+		LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%4.4" PRIx16,
 				  address,
 				  *value);
 	} else {
@@ -2270,7 +2280,7 @@ int target_read_u8(struct target *target, uint32_t address, uint8_t *value)
 	int retval = target_read_memory(target, address, 1, 1, value);
 
 	if (retval == ERROR_OK) {
-		LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%2.2x",
+		LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%2.2" PRIx8,
 				  address,
 				  *value);
 	} else {
@@ -2333,7 +2343,7 @@ int target_write_u16(struct target *target, uint32_t address, uint16_t value)
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%8.8x",
+	LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%8.8" PRIx16,
 			  address,
 			  value);
 
@@ -2353,7 +2363,7 @@ int target_write_u8(struct target *target, uint32_t address, uint8_t value)
 		return ERROR_FAIL;
 	}
 
-	LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%2.2x",
+	LOG_DEBUG("address: 0x%8.8" PRIx32 ", value: 0x%2.2" PRIx8,
 			  address, value);
 
 	retval = target_write_memory(target, address, 1, 1, &value);
@@ -2449,9 +2459,9 @@ static int sense_handler(void)
 	if (powerRestored)
 		runPowerRestore = 1;
 
-	long long current = timeval_ms();
-	static long long lastPower;
-	int waitMore = lastPower + 2000 > current;
+	int64_t current = timeval_ms();
+	static int64_t lastPower;
+	bool waitMore = lastPower + 2000 > current;
 	if (powerDropout && !waitMore) {
 		runPowerDropout = 1;
 		lastPower = current;
@@ -2464,7 +2474,7 @@ static int sense_handler(void)
 	int srstDeasserted;
 	srstDeasserted = prevSrstAsserted && !srstAsserted;
 
-	static long long lastSrst;
+	static int64_t lastSrst;
 	waitMore = lastSrst + 2000 > current;
 	if (srstDeasserted && !waitMore) {
 		runSrstDeasserted = 1;
@@ -2774,8 +2784,8 @@ COMMAND_HANDLER(handle_wait_halt_command)
 int target_wait_state(struct target *target, enum target_state state, int ms)
 {
 	int retval;
-	long long then = 0, cur;
-	int once = 1;
+	int64_t then = 0, cur;
+	bool once = true;
 
 	for (;;) {
 		retval = target_poll(target);
@@ -2785,7 +2795,7 @@ int target_wait_state(struct target *target, enum target_state state, int ms)
 			break;
 		cur = timeval_ms();
 		if (once) {
-			once = 0;
+			once = false;
 			then = timeval_ms();
 			LOG_DEBUG("waiting for target %s...",
 				Jim_Nvp_value2name_simple(nvp_target_state, state)->name);
@@ -3159,7 +3169,7 @@ COMMAND_HANDLER(handle_load_image_command)
 	duration_start(&bench);
 
 	if (image_open(&image, CMD_ARGV[0], (CMD_ARGC >= 3) ? CMD_ARGV[2] : NULL) != ERROR_OK)
-		return ERROR_OK;
+		return ERROR_FAIL;
 
 	image_size = 0x0;
 	retval = ERROR_OK;
@@ -3169,6 +3179,7 @@ COMMAND_HANDLER(handle_load_image_command)
 			command_print(CMD_CTX,
 						  "error allocating buffer for section (%d bytes)",
 						  (int)(image.sections[i].size));
+			retval = ERROR_FAIL;
 			break;
 		}
 
@@ -3916,6 +3927,8 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 	uint32_t count;
 	uint32_t v;
 	const char *varname;
+	const char *phys;
+	bool is_phys;
 	int  n, e, retval;
 	uint32_t i;
 
@@ -3924,8 +3937,8 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 	 * argv[3] = memory address
 	 * argv[4] = count of times to read
 	 */
-	if (argc != 4) {
-		Jim_WrongNumArgs(interp, 1, argv, "varname width addr nelems");
+	if (argc < 4 || argc > 5) {
+		Jim_WrongNumArgs(interp, 1, argv, "varname width addr nelems [phys]");
 		return JIM_ERR;
 	}
 	varname = Jim_GetString(argv[0], &len);
@@ -3944,6 +3957,14 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 	len = l;
 	if (e != JIM_OK)
 		return e;
+	is_phys = false;
+	if (argc > 4) {
+		phys = Jim_GetString(argv[4], &n);
+		if (!strncmp(phys, "phys", n))
+			is_phys = true;
+		else
+			return JIM_ERR;
+	}
 	switch (width) {
 		case 8:
 			width = 1;
@@ -3986,7 +4007,7 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 		sprintf(buf, "mem2array address: 0x%08" PRIx32 " is not aligned for %" PRId32 " byte reads",
 				addr,
 				width);
-		Jim_AppendStrings(interp, Jim_GetResult(interp), buf , NULL);
+		Jim_AppendStrings(interp, Jim_GetResult(interp), buf, NULL);
 		return JIM_ERR;
 	}
 
@@ -4009,13 +4030,16 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 		if (count > (buffersize / width))
 			count = (buffersize / width);
 
-		retval = target_read_memory(target, addr, width, count, buffer);
+		if (is_phys)
+			retval = target_read_phys_memory(target, addr, width, count, buffer);
+		else
+			retval = target_read_memory(target, addr, width, count, buffer);
 		if (retval != ERROR_OK) {
 			/* BOO !*/
-			LOG_ERROR("mem2array: Read @ 0x%08x, w=%d, cnt=%d, failed",
-					  (unsigned int)addr,
-					  (int)width,
-					  (int)count);
+			LOG_ERROR("mem2array: Read @ 0x%08" PRIx32 ", w=%" PRId32 ", cnt=%" PRId32 ", failed",
+					  addr,
+					  width,
+					  count);
 			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
 			Jim_AppendStrings(interp, Jim_GetResult(interp), "mem2array: cannot read memory", NULL);
 			e = JIM_ERR;
@@ -4105,6 +4129,8 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
 	uint32_t count;
 	uint32_t v;
 	const char *varname;
+	const char *phys;
+	bool is_phys;
 	int  n, e, retval;
 	uint32_t i;
 
@@ -4113,8 +4139,8 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
 	 * argv[3] = memory address
 	 * argv[4] = count to write
 	 */
-	if (argc != 4) {
-		Jim_WrongNumArgs(interp, 0, argv, "varname width addr nelems");
+	if (argc < 4 || argc > 5) {
+		Jim_WrongNumArgs(interp, 0, argv, "varname width addr nelems [phys]");
 		return JIM_ERR;
 	}
 	varname = Jim_GetString(argv[0], &len);
@@ -4133,6 +4159,14 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
 	len = l;
 	if (e != JIM_OK)
 		return e;
+	is_phys = false;
+	if (argc > 4) {
+		phys = Jim_GetString(argv[4], &n);
+		if (!strncmp(phys, "phys", n))
+			is_phys = true;
+		else
+			return JIM_ERR;
+	}
 	switch (width) {
 		case 8:
 			width = 1;
@@ -4176,10 +4210,10 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
 	} else {
 		char buf[100];
 		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		sprintf(buf, "array2mem address: 0x%08x is not aligned for %d byte reads",
-				(unsigned int)addr,
-				(int)width);
-		Jim_AppendStrings(interp, Jim_GetResult(interp), buf , NULL);
+		sprintf(buf, "array2mem address: 0x%08" PRIx32 " is not aligned for %" PRId32 " byte reads",
+				addr,
+				width);
+		Jim_AppendStrings(interp, Jim_GetResult(interp), buf, NULL);
 		return JIM_ERR;
 	}
 
@@ -4219,13 +4253,16 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
 		}
 		len -= count;
 
-		retval = target_write_memory(target, addr, width, count, buffer);
+		if (is_phys)
+			retval = target_write_phys_memory(target, addr, width, count, buffer);
+		else
+			retval = target_write_memory(target, addr, width, count, buffer);
 		if (retval != ERROR_OK) {
 			/* BOO !*/
-			LOG_ERROR("array2mem: Write @ 0x%08x, w=%d, cnt=%d, failed",
-					  (unsigned int)addr,
-					  (int)width,
-					  (int)count);
+			LOG_ERROR("array2mem: Write @ 0x%08" PRIx32 ", w=%" PRId32 ", cnt=%" PRId32 ", failed",
+					  addr,
+					  width,
+					  count);
 			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
 			Jim_AppendStrings(interp, Jim_GetResult(interp), "array2mem: cannot read memory", NULL);
 			e = JIM_ERR;
@@ -5667,7 +5704,7 @@ COMMAND_HANDLER(handle_fast_load_command)
 		return ERROR_FAIL;
 	}
 	int i;
-	int ms = timeval_ms();
+	int64_t ms = timeval_ms();
 	int size = 0;
 	int retval = ERROR_OK;
 	for (i = 0; i < fastload_num; i++) {
@@ -5681,7 +5718,7 @@ COMMAND_HANDLER(handle_fast_load_command)
 		size += fastload[i].length;
 	}
 	if (retval == ERROR_OK) {
-		int after = timeval_ms();
+		int64_t after = timeval_ms();
 		command_print(CMD_CTX, "Loaded image %f kBytes/s", (float)(size/1024.0)/((float)(after-ms)/1000.0));
 	}
 	return retval;

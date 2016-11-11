@@ -74,6 +74,7 @@
 #define SAMD_SERIES_22		0x02
 #define SAMD_SERIES_10		0x02
 #define SAMD_SERIES_11		0x03
+#define SAMD_SERIES_09		0x04
 
 /* Device ID macros */
 #define SAMD_GET_PROCESSOR(id) (id >> 28)
@@ -86,6 +87,13 @@ struct samd_part {
 	const char *name;
 	uint32_t flash_kb;
 	uint32_t ram_kb;
+};
+
+/* Known SAMD09 parts. DID reset values missing in RM, see
+ * https://github.com/avrxml/asf/blob/master/sam0/utils/cmsis/samd09/include/ */
+static const struct samd_part samd09_parts[] = {
+	{ 0x0, "SAMD09D14A", 16, 4 },
+	{ 0x7, "SAMD09C13A", 8, 4 },
 };
 
 /* Known SAMD10 parts */
@@ -257,6 +265,8 @@ static const struct samd_family samd_families[] = {
 		samd21_parts, ARRAY_SIZE(samd21_parts) },
 	{ SAMD_PROCESSOR_M0, SAMD_FAMILY_D, SAMD_SERIES_21,
 		samr21_parts, ARRAY_SIZE(samr21_parts) },
+	{ SAMD_PROCESSOR_M0, SAMD_FAMILY_D, SAMD_SERIES_09,
+		samd09_parts, ARRAY_SIZE(samd09_parts) },
 	{ SAMD_PROCESSOR_M0, SAMD_FAMILY_D, SAMD_SERIES_10,
 		samd10_parts, ARRAY_SIZE(samd10_parts) },
 	{ SAMD_PROCESSOR_M0, SAMD_FAMILY_D, SAMD_SERIES_11,
@@ -1008,9 +1018,14 @@ COMMAND_HANDLER(samd_handle_bootloader_command)
 COMMAND_HANDLER(samd_handle_reset_deassert)
 {
 	struct target *target = get_current_target(CMD_CTX);
-	struct armv7m_common *armv7m = target_to_armv7m(target);
 	int retval = ERROR_OK;
 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+
+	/* If the target has been unresponsive before, try to re-establish
+	 * communication now - CPU is held in reset by DSU, DAP is working */
+	if (!target_was_examined(target))
+		target_examine_one(target);
+	target_poll(target);
 
 	/* In case of sysresetreq, debug retains state set in cortex_m_assert_reset()
 	 * so we just release reset held by DSU
@@ -1020,9 +1035,9 @@ COMMAND_HANDLER(samd_handle_reset_deassert)
 	 * After vectreset DSU release is not needed however makes no harm
 	 */
 	if (target->reset_halt && (jtag_reset_config & RESET_HAS_SRST)) {
-		retval = mem_ap_write_u32(armv7m->debug_ap, DCB_DHCSR, DBGKEY | C_HALT | C_DEBUGEN);
+		retval = target_write_u32(target, DCB_DHCSR, DBGKEY | C_HALT | C_DEBUGEN);
 		if (retval == ERROR_OK)
-			retval = mem_ap_write_u32(armv7m->debug_ap, DCB_DEMCR,
+			retval = target_write_u32(target, DCB_DEMCR,
 				TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
 		/* do not return on error here, releasing DSU reset is more important */
 	}

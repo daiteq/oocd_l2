@@ -154,7 +154,7 @@ struct target {
 										 * upon first allocation from virtual/physical address. */
 	bool working_area_virt_spec;		/* virtual address specified? */
 	uint32_t working_area_virt;			/* virtual address */
-	bool working_area_phys_spec;		/* virtual address specified? */
+	bool working_area_phys_spec;		/* physical address specified? */
 	uint32_t working_area_phys;			/* physical address */
 	uint32_t working_area_size;			/* size in bytes */
 	uint32_t backup_working_area;		/* whether the content of the working area has to be preserved */
@@ -175,7 +175,7 @@ struct target {
 	int display;						/* display async info in telnet session. Do not display
 										 * lots of halted/resumed info when stepping in debugger. */
 	bool halt_issued;					/* did we transition to halted state? */
-	long long halt_issued_time;			/* Note time when halt was issued */
+	int64_t halt_issued_time;			/* Note time when halt was issued */
 
 	bool dbgbase_set;					/* By default the debug base is not set */
 	uint32_t dbgbase;					/* Really a Cortex-A specific option, but there is no
@@ -579,7 +579,7 @@ int target_read_buffer(struct target *target,
 int target_checksum_memory(struct target *target,
 		uint32_t address, uint32_t size, uint32_t *crc);
 int target_blank_check_memory(struct target *target,
-		uint32_t address, uint32_t size, uint32_t *blank);
+		uint32_t address, uint32_t size, uint32_t *blank, uint8_t erased_value);
 int target_wait_state(struct target *target, enum target_state state, int ms);
 
 /**

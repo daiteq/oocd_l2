@@ -33,6 +33,7 @@ noinst_LTLIBRARIES += libjaylink_internal.la
 libocdjtagdrivers_la_LIBADD += libjaylink_internal.la
 else
 DRIVERFILES += jlink.c
+libocdjtagdrivers_la_CPPFLAGS += $(libjaylink_CFLAGS)
 endif
 endif
 
@@ -59,9 +60,6 @@ endif
 if DUMMY
 DRIVERFILES += dummy.c
 endif
-if FT2232_DRIVER
-DRIVERFILES += ft2232.c
-endif
 if FTDI
 DRIVERFILES += ftdi.c mpsse.c
 endif
@@ -87,7 +85,7 @@ endif
 if BITQ
 DRIVERFILES += bitq.c
 endif
-if PRESTO_DRIVER
+if PRESTO
 DRIVERFILES += presto.c
 endif
 if USBPROG
@@ -149,7 +147,6 @@ DRIVERFILES += xpcu2.c
 noinst_HEADERS = \
 	bitbang.h \
 	bitq.h \
-	ftd2xx_common.h \
 	libusb0_common.h \
 	libusb1_common.h \
 	libusb_common.h \
@@ -168,8 +165,10 @@ noinst_HEADERS = \
 
 DIST_SUBDIRS = usb_blaster
 
+if JLINK
 if INTERNAL_LIBJAYLINK
 DIST_SUBDIRS += libjaylink
+endif
 endif
 
 MAINTAINERCLEANFILES = $(srcdir)/Makefile.in

@@ -147,7 +147,7 @@ static int samv_efc_perform_command(struct target *target,
 {
 	int r;
 	uint32_t v;
-	long long ms_now, ms_end;
+	int64_t ms_now, ms_end;
 
 	if (status)
 		*status = 0;
@@ -363,6 +363,9 @@ static int samv_probe(struct flash_bank *bank)
 
 	uint8_t nvm_size_code = (device_id >> 8) & 0xf;
 	switch (nvm_size_code) {
+		case 10:
+			bank->size = 512 * 1024;
+			break;
 		case 12:
 			bank->size = 1024 * 1024;
 			break;

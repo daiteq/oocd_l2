@@ -1449,7 +1449,7 @@ static int gdb_write_memory_packet(struct connection *connection,
 
 	LOG_DEBUG("addr: 0x%8.8" PRIx32 ", len: 0x%8.8" PRIx32 "", addr, len);
 
-	if (unhexify((char *)buffer, separator, len) != (int)len)
+	if (unhexify(buffer, separator, len) != len)
 		LOG_ERROR("unable to decode memory packet");
 
 	retval = target_write_buffer(target, addr, len, buffer);
@@ -1473,6 +1473,10 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
 	uint32_t len = 0;
 
 	int retval = ERROR_OK;
+	/* Packets larger than fast_limit bytes will be acknowledged instantly on
+	 * the assumption that we're in a download and it's important to go as fast
+	 * as possible. */
+	uint32_t fast_limit = 8;
 
 	/* skip command character */
 	packet++;
@@ -1493,19 +1497,23 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
 
 	struct gdb_connection *gdb_connection = connection->priv;
 
-	if (gdb_connection->mem_write_error) {
+	if (gdb_connection->mem_write_error)
 		retval = ERROR_FAIL;
+
+	if (retval == ERROR_OK) {
+		if (len >= fast_limit) {
+			/* By replying the packet *immediately* GDB will send us a new packet
+			 * while we write the last one to the target.
+			 * We only do this for larger writes, so that users who do something like:
+			 * p *((int*)0xdeadbeef)=8675309
+			 * will get immediate feedback that that write failed.
+			 */
+			gdb_put_packet(connection, "OK", 2);
+		}
+	} else {
+		retval = gdb_error(connection, retval);
 		/* now that we have reported the memory write error, we can clear the condition */
 		gdb_connection->mem_write_error = false;
-	}
-
-	/* By replying the packet *immediately* GDB will send us a new packet
-	 * while we write the last one to the target.
-	 */
-	if (retval == ERROR_OK)
-		gdb_put_packet(connection, "OK", 2);
-	else {
-		retval = gdb_error(connection, retval);
 		if (retval != ERROR_OK)
 			return retval;
 	}
@@ -1516,6 +1524,15 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
 		retval = target_write_buffer(target, addr, len, (uint8_t *)separator);
 		if (retval != ERROR_OK)
 			gdb_connection->mem_write_error = true;
+	}
+
+	if (len < fast_limit) {
+		if (retval != ERROR_OK) {
+			gdb_error(connection, retval);
+			gdb_connection->mem_write_error = false;
+		} else {
+			gdb_put_packet(connection, "OK", 2);
+		}
 	}
 
 	return ERROR_OK;
@@ -2277,7 +2294,7 @@ static int gdb_query_packet(struct connection *connection,
 		if (packet_size > 6) {
 			char *cmd;
 			cmd = malloc((packet_size - 6) / 2 + 1);
-			int len = unhexify(cmd, packet + 6, (packet_size - 6) / 2);
+			size_t len = unhexify((uint8_t *)cmd, packet + 6, (packet_size - 6) / 2);
 			cmd[len] = 0;
 
 			/* We want to print all debug output to GDB connection */
@@ -2921,6 +2938,11 @@ static int gdb_target_start(struct target *target, const char *port)
 
 static int gdb_target_add_one(struct target *target)
 {
+	if (strcmp(gdb_port, "disabled") == 0) {
+		LOG_INFO("gdb port disabled");
+		return ERROR_OK;
+	}
+
 	/*  one gdb instance per smp list */
 	if ((target->smp) && (target->gdb_service))
 		return ERROR_OK;
@@ -2944,6 +2966,11 @@ static int gdb_target_add_one(struct target *target)
 
 int gdb_target_add_all(struct target *target)
 {
+	if (strcmp(gdb_port, "disabled") == 0) {
+		LOG_INFO("gdb server disabled");
+		return ERROR_OK;
+	}
+
 	if (NULL == target) {
 		LOG_WARNING("gdb services need one or more targets defined");
 		return ERROR_OK;
@@ -3109,7 +3136,7 @@ static const struct command_registration gdb_command_handlers[] = {
 			"server listens for the next port number after the "
 			"base port number specified. "
 			"No arguments reports GDB port. \"pipe\" means listen to stdin "
-			"output to stdout, an integer is base port number, \"disable\" disables "
+			"output to stdout, an integer is base port number, \"disabled\" disables "
 			"port. Any other string is are interpreted as named pipe to listen to. "
 			"Output pipe is the same name as input pipe, but with 'o' appended.",
 		.usage = "[port_num]",

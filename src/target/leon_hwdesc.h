@@ -74,6 +74,9 @@
 #define LEON_DSU_AHB_BRK_MASK1      (LEON_DSU_BASE_ADDRESS+0x00000014)
 #define LEON_DSU_AHB_BRK_ADDR2      (LEON_DSU_BASE_ADDRESS+0x00000018)
 #define LEON_DSU_AHB_BRK_MASK2      (LEON_DSU_BASE_ADDRESS+0x0000001C)
+
+#define LEON_DSU_L2MT_CTRL_REG      (LEON_DSU_BASE_ADDRESS+0x00000020)
+
 #define LEON_DSU_TRACE_BUFFER_BASE  (LEON_DSU_BASE_ADDRESS+0x00010000)
 #define LEON_DSU_TRACE_BUFFER_SIZE  (0x00010000)
 #define LEON_DSU_TRACE_BUFFER_LNSZ  (128) /* in bits */
@@ -251,6 +254,11 @@
 #define LEON_DSU_TRCA_INST_OPCODE_SHIFT       (0)      /* Instruction opcode */
 #define LEON_DSU_TRCA_INST_OPCODE_MASK        (0xffffffff<<LEON_DSU_TRCA_INST_OPCODE_SHIFT)
 
+/* --- DSU L2MT Reset Register ---------------------------------------------------- */
+#define LEON_DSU_MTCTRL_RST_SHIFT    (0)        /* sw reset */
+#define LEON_DSU_MTCTRL_RST          (1<<LEON_DSU_MTCTRL_RST_SHIFT)
+#define LEON_DSU_MTCTRL_BRK_SHIFT    (1)        /* sw dsu break */
+#define LEON_DSU_MTCTRL_BRK          (1<<LEON_DSU_MTCTRL_BRK_SHIFT)
 
 /* --- DSU Trap Register ---------------------------------------------------- */
 #define LEON_DSU_TRAP_TT_SHIFT    (4)        /* 8-bit SPARC trap type */

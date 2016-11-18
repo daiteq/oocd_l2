@@ -43,6 +43,8 @@
 //                                  struct watchpoint *watchpoint);
 //// static int leon_hit_watchpoint(struct target *target, struct watchpoint **hit_watchpoint);
 
+//int leon_reset_callback(struct target *target, enum target_reset_mode reset_mode, void *priv);
+
 /* -------------------------------------------------------------------------- */
 /* --- Auxiliary functions -------------------------------------------------- */
 static char *leon_type_to_string(enum leon_type ltp)
@@ -379,6 +381,8 @@ static int leon_init_target(struct command_context *cmd_ctx,
 	if (pl->rid_to_rdi==NULL || pl->rdi_to_rid==NULL)
 		return ERROR_TARGET_INIT_FAILED;
 
+//	target_register_reset_callback(leon_reset_callback, NULL);
+
 	leon_build_reg_cache(target);
 	return ERROR_OK;
 }
@@ -386,6 +390,7 @@ static int leon_init_target(struct command_context *cmd_ctx,
 static void leon_deinit_target(struct target *target)
 {
 	struct leon_common *pl = (struct leon_common *)target->arch_info;
+//	target_unregister_reset_callback(leon_reset_callback, NULL);
 	leon_elf_reset_sections_symbols(pl);
 	free(pl->rid_to_rdi);
 	free(pl->rdi_to_rid);
@@ -838,6 +843,13 @@ int leon_soft_reset_halt(struct target *target)
 
 	return ERROR_OK;
 }
+
+//int leon_reset_callback(struct target *target, enum target_reset_mode reset_mode, void *priv)
+//{
+//	//struct leon_common *leon = target_to_leon(target);
+//	LOG_INFO("leon reset callback t=%d", reset_mode);
+//	return ERROR_OK;
+//}
 
 /* -------------------------------------------------------------------------- */
 int leon_get_gdb_reg_list(struct target *target,
@@ -1976,6 +1988,51 @@ COMMAND_HANDLER(leon_run_command)
 	return target_resume(tgt, cur, addr, 1, 0);
 }
 
+COMMAND_HANDLER(leon_restart_command)
+{
+	struct target *tgt = leon_cmd_to_tgt(cmd);
+	struct leon_common *leon;
+	int halt = 0, retval;
+
+	if (tgt==NULL) {
+		LOG_ERROR("Target type is not '" LEON_TYPE_NAME "'");
+		return ERROR_FAIL;
+	}
+	leon = target_to_leon(tgt);
+	if (leon->ltype!=LEON_TYPE_L2MT) {
+		LOG_ERROR("Target has to be L2MT");
+		return ERROR_FAIL;
+	}
+
+	if (CMD_ARGC > 1) return ERROR_COMMAND_SYNTAX_ERROR;
+	if (CMD_ARGC > 0) {
+		if (!strcmp(CMD_ARGV[0], "halt"))
+			halt = 1;
+	}
+	do {
+		uint32_t *pdsu = leon_get_ptrreg(tgt, LEON_RID_DSUMTCTRL);
+		retval = leon_write_register(tgt, LEON_RID_DSUMTCTRL, LEON_DSU_MTCTRL_RST | (halt ? LEON_DSU_MTCTRL_BRK : 0));
+		if (retval!=ERROR_OK) break;
+		retval = leon_read_register(tgt, LEON_RID_DSUMTCTRL, 1);
+		if (retval!=ERROR_OK) break;
+		if (!(*pdsu & LEON_DSU_MTCTRL_RST)) {
+			LOG_ERROR("SW Reset failed");
+			return ERROR_FAIL;
+		}
+		usleep(1);
+		retval = leon_write_register(tgt, LEON_RID_DSUCTRL, 0); // for safety, reset breaks in DSU control registers
+		if (retval!=ERROR_OK) break;
+		retval = leon_write_register(tgt, LEON_RID_DSUMTCTRL, halt ? LEON_DSU_MTCTRL_BRK : 0);
+		if (retval!=ERROR_OK) break;
+		if (*pdsu & LEON_DSU_MTCTRL_RST) {
+			LOG_ERROR("SW Reset failed (2)");
+			return ERROR_FAIL;
+		}
+		return ERROR_OK;
+	} while(0);
+	return ERROR_FAIL;
+}
+
 /* ========================================================================== */
 
 static const struct command_registration leon_command_handlers[] = {
@@ -2091,6 +2148,14 @@ static const struct command_registration leon_command_handlers[] = {
 		.usage = "[address]",
 	},
 /* --- */
+
+	{
+		.name = "restart",
+		.handler = leon_restart_command,
+		.mode = COMMAND_EXEC,
+		.help = "Restart L2MT target",
+		.usage = "[halt]",
+	},
 
 	COMMAND_REGISTRATION_DONE
 };

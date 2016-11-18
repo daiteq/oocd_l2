@@ -191,6 +191,7 @@ const leon_registers_t leon_dsu_regs[] = {
 	{ LEON_RID_DSUBADDR2, "dsubaddr2", REG_TYPE_UINT32, LEON_DSU_AHB_BRK_ADDR2},
 	{ LEON_RID_DSUBMASK2, "dsubmask2", REG_TYPE_UINT32, LEON_DSU_AHB_BRK_MASK2},
 	{   LEON_RID_DSUTRAP,   "dsutrap", REG_TYPE_UINT32, LEON_DSU_SREG_DSU_TRAP},
+	{  LEON_RID_DSUMTCTRL,"dsumtctrl", REG_TYPE_UINT32, LEON_DSU_L2MT_CTRL_REG},
 	{ 0, NULL, 0, 0}
 };
 
@@ -286,6 +287,12 @@ const leon_reg_item_t leon_regdes_dsutrap[] = {
 	{ 0, NULL, NULL, 0, 0}
 };
 
+const leon_reg_item_t leon_regdes_dsumtctrl[] = {
+	{ 1, "RST", "software CPU reset",         LEON_DSU_MTCTRL_RST, LEON_DSU_MTCTRL_RST_SHIFT},
+	{ 1, "BRK", "software DSU break",         LEON_DSU_MTCTRL_BRK, LEON_DSU_MTCTRL_BRK_SHIFT},
+	{ 0, NULL, NULL, 0, 0}
+};
+
 const leon_reg_parsed_t leon_register_description[] = {
 	{       LEON_RID_PSR,      "PSR", "Processor State Register", leon_regdes_psr},
 	{       LEON_RID_TBR,      "TBR", "Trap Base Register", leon_regdes_tbr},
@@ -296,6 +303,7 @@ const leon_reg_parsed_t leon_register_description[] = {
 	{ LEON_RID_DSUBADDR2, "BRKADDR2", "DSU Breakpoint Address 2", leon_regdes_dsubreakaddr},
 	{ LEON_RID_DSUBMASK2, "BRKMASK2", "DSU Breakpoint Mask 2", leon_regdes_dsubreakmask},
 	{   LEON_RID_DSUTRAP,  "DSUTRAP", "DSU Trap Register", leon_regdes_dsutrap},
+	{ LEON_RID_DSUMTCTRL,"DSUMTCTRL", "DSU L2MT Control Register", leon_regdes_dsumtctrl},
 	{0, NULL, NULL, NULL}
 };
 

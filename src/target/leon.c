@@ -151,12 +151,18 @@ void leon_check_state_and_reason(struct target *tgt, enum target_state *pst, enu
 	do {
 		if (!pdsuctrl) break;
 
-		if (LEON_GET_BIT(pdsuctrl, LEON_DSU_CTRL_DEBUG_MODE)) {
+		struct leon_common *leon = target_to_leon(tgt);
+		if (leon->ltype==LEON_TYPE_L2MT) {
 			st = TARGET_HALTED;
+			dr = DBG_REASON_UNDEFINED;
 		} else {
-			st = TARGET_RUNNING;
-			dr = DBG_REASON_NOTHALTED;
-			break;
+			if (LEON_GET_BIT(pdsuctrl, LEON_DSU_CTRL_DEBUG_MODE)) {
+				st = TARGET_HALTED;
+			} else {
+				st = TARGET_RUNNING;
+				dr = DBG_REASON_NOTHALTED;
+				break;
+			}
 		}
 
 		if (!pdsutrp) break;
@@ -445,49 +451,53 @@ static int leon_examine(struct target *target)
 //			LOG_ERROR("Reading control registers failed");
 //			break;
 //		}
-
-		uint32_t *plcfg = leon_get_ptrreg(target, LEON_RID_LCFG);
-		if (!plcfg) break;
-		retval = leon_jtag_get_registers(target, LEON_REGS_LEON_CFG_REG, plcfg, 1);
-		if (retval!=ERROR_OK) break;
-		uint32_t *ppsr = leon_get_ptrreg(target, LEON_RID_PSR);
-		if (!ppsr) break;
-		retval = leon_jtag_get_registers(target, LEON_DSU_SREG_PSR, ppsr, 1);
-		if (retval!=ERROR_OK) break;
-		LOG_USER("LEONexam (%s) Configuration = 0x%08x", leon->tap->dotted_name, *plcfg);
-		LOG_USER(" - Sparc IMPL=x%X, VER=x%X",
-		          LEON_GET_VAL(ppsr, SPARC_V8_PSR_IMPL),
-		          LEON_GET_VAL(ppsr, SPARC_V8_PSR_VER));
-		if (LEON_GET_BIT(ppsr, SPARC_V8_PSR_EF)) {
-			uint32_t *pfsr = leon_get_ptrreg(target, LEON_RID_FSR);
-			if (!pfsr) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_SREG_FSR, pfsr, 1);
-			if (retval!=ERROR_OK) break;
-			LOG_USER(" - Sparc FPU (type=%lu) VER=x%X",
-			          LEON_GET_VAL(plcfg, LEON_CFG_REG_FPU_TYPE),
-			          LEON_GET_VAL(pfsr, SPARC_V8_FSR_VER));
-		}
-		if (LEON_GET_BIT(plcfg, LEON_CFG_REG_IS_DSU)) {
-			uint32_t rdsu;
-			uint32_t *preg = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
-			if (!preg) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_CTRL_REG, preg, 1);
-			if (retval!=ERROR_OK) break;
-			LOG_USER(" - DSU Control Register = 0x%X", *preg);
-			rdsu = *preg;
-			preg = leon_get_ptrreg(target, LEON_RID_DSUTRAP);
-			if (!preg) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_SREG_DSU_TRAP, preg, 1);
-			if (retval!=ERROR_OK) break;
-			LOG_USER(" - DSU Trap Register    = 0x%X", *preg);
-			preg = leon_get_ptrreg(target, LEON_RID_TRCCTRL);
-			if (!preg) break;
-			retval = leon_jtag_get_registers(target, LEON_DSU_TRACE_CTRL_REG, preg, 1);
-			if (retval!=ERROR_OK) break;
-			LOG_USER(" - DSU Trace Ctrl Reg.  = 0x%X", *preg);
-			leon_update_tmode(leon, rdsu, *preg);
+		if (leon->ltype==LEON_TYPE_L2MT) {
+			LOG_USER("LEONexam (%s) MT mode - skip testing of L2 registers", leon->tap->dotted_name);
+			target->state = TARGET_HALTED;
 		} else {
-			LOG_WARNING("The target doesn't contain DSU");
+			uint32_t *plcfg = leon_get_ptrreg(target, LEON_RID_LCFG);
+			if (!plcfg) break;
+			retval = leon_jtag_get_registers(target, LEON_REGS_LEON_CFG_REG, plcfg, 1);
+			if (retval!=ERROR_OK) break;
+			uint32_t *ppsr = leon_get_ptrreg(target, LEON_RID_PSR);
+			if (!ppsr) break;
+			retval = leon_jtag_get_registers(target, LEON_DSU_SREG_PSR, ppsr, 1);
+			if (retval!=ERROR_OK) break;
+			LOG_USER("LEONexam (%s) Configuration = 0x%08x", leon->tap->dotted_name, *plcfg);
+			LOG_USER(" - Sparc IMPL=x%X, VER=x%X",
+								LEON_GET_VAL(ppsr, SPARC_V8_PSR_IMPL),
+								LEON_GET_VAL(ppsr, SPARC_V8_PSR_VER));
+			if (LEON_GET_BIT(ppsr, SPARC_V8_PSR_EF)) {
+				uint32_t *pfsr = leon_get_ptrreg(target, LEON_RID_FSR);
+				if (!pfsr) break;
+				retval = leon_jtag_get_registers(target, LEON_DSU_SREG_FSR, pfsr, 1);
+				if (retval!=ERROR_OK) break;
+				LOG_USER(" - Sparc FPU (type=%lu) VER=x%X",
+									LEON_GET_VAL(plcfg, LEON_CFG_REG_FPU_TYPE),
+									LEON_GET_VAL(pfsr, SPARC_V8_FSR_VER));
+			}
+			if (LEON_GET_BIT(plcfg, LEON_CFG_REG_IS_DSU)) {
+				uint32_t rdsu;
+				uint32_t *preg = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
+				if (!preg) break;
+				retval = leon_jtag_get_registers(target, LEON_DSU_CTRL_REG, preg, 1);
+				if (retval!=ERROR_OK) break;
+				LOG_USER(" - DSU Control Register = 0x%X", *preg);
+				rdsu = *preg;
+				preg = leon_get_ptrreg(target, LEON_RID_DSUTRAP);
+				if (!preg) break;
+				retval = leon_jtag_get_registers(target, LEON_DSU_SREG_DSU_TRAP, preg, 1);
+				if (retval!=ERROR_OK) break;
+				LOG_USER(" - DSU Trap Register    = 0x%X", *preg);
+				preg = leon_get_ptrreg(target, LEON_RID_TRCCTRL);
+				if (!preg) break;
+				retval = leon_jtag_get_registers(target, LEON_DSU_TRACE_CTRL_REG, preg, 1);
+				if (retval!=ERROR_OK) break;
+				LOG_USER(" - DSU Trace Ctrl Reg.  = 0x%X", *preg);
+				leon_update_tmode(leon, rdsu, *preg);
+			} else {
+				LOG_WARNING("The target doesn't contain DSU");
+			}
 		}
 
 		leon_check_regcache(target);
@@ -526,14 +536,22 @@ static int leon_poll(struct target *target)
 		return ERROR_OK;
 	}
 
-	retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
-	if (retval==ERROR_OK) {
-		retval = leon_read_register(target, LEON_RID_DSUTRAP, 1);
-	}
-	if (retval!=ERROR_OK) {
-		target->state = TARGET_UNKNOWN;
+	struct leon_common *pl = target_to_leon(target);
+
+	if (pl->ltype==LEON_TYPE_L2MT) {
+		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+		target->state = TARGET_HALTED;
 		target->debug_reason = DBG_REASON_UNDEFINED;
-		return ERROR_FAIL;
+	} else {
+		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+		if (retval==ERROR_OK) {
+			retval = leon_read_register(target, LEON_RID_DSUTRAP, 1);
+		}
+		if (retval!=ERROR_OK) {
+			target->state = TARGET_UNKNOWN;
+			target->debug_reason = DBG_REASON_UNDEFINED;
+			return ERROR_FAIL;
+		}
 	}
 enum target_state lst = target->state;
 	leon_check_state_and_reason(target, &target->state, &target->debug_reason);
@@ -556,35 +574,39 @@ static int leon_halt(struct target *target)
 	do {
 		LEON_TM_START(bench);
 
-		uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
-		if (!pdsu) break;
-		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
-//LOG_INFO(" TgtHALT RD DSUctrl x%08X", *pdsu);
-		if (retval!=ERROR_OK) break;
-		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
-		if (target->state == TARGET_HALTED) return ERROR_OK;
-		/* halt processor - break now */
-		retval = leon_write_register(target, LEON_RID_DSUCTRL,
-		            (*pdsu & LEON_DSU_CTRL_RW_MASK) | LEON_DSU_CTRL_BRK_NOW |
-		              LEON_DSU_CTRL_BRK_IU_WPT);
-		if (retval!=ERROR_OK) break;
+		if (leon->ltype==LEON_TYPE_L2MT) {
+			target->state = TARGET_HALTED;
+		} else {
+			uint32_t *pdsu = leon_get_ptrreg(target, LEON_RID_DSUCTRL);
+			if (!pdsu) break;
+			retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+	//LOG_INFO(" TgtHALT RD DSUctrl x%08X", *pdsu);
+			if (retval!=ERROR_OK) break;
+			leon_check_state_and_reason(target, &target->state, &target->debug_reason);
+			if (target->state == TARGET_HALTED) return ERROR_OK;
+			/* halt processor - break now */
+			retval = leon_write_register(target, LEON_RID_DSUCTRL,
+									(*pdsu & LEON_DSU_CTRL_RW_MASK) | LEON_DSU_CTRL_BRK_NOW |
+										LEON_DSU_CTRL_BRK_IU_WPT);
+			if (retval!=ERROR_OK) break;
 
-		retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
-//LOG_INFO(" TgtHALT reRD DSUctrl x%08X", *pdsu);
-		if (retval!=ERROR_OK) break;
-		leon_check_state_and_reason(target, &target->state, &target->debug_reason);
-		if (target->state!=TARGET_HALTED) {
-			LOG_WARNING("Target is not in the debug mode");
-			return ERROR_TARGET_NOT_HALTED;
-		}
+			retval = leon_read_register(target, LEON_RID_DSUCTRL, 1);
+	//LOG_INFO(" TgtHALT reRD DSUctrl x%08X", *pdsu);
+			if (retval!=ERROR_OK) break;
+			leon_check_state_and_reason(target, &target->state, &target->debug_reason);
+			if (target->state!=TARGET_HALTED) {
+				LOG_WARNING("Target is not in the debug mode");
+				return ERROR_TARGET_NOT_HALTED;
+			}
 
-		register_cache_invalidate(leon->regdesc);
-		retval = leon_read_all_registers(target, 0);
+			register_cache_invalidate(leon->regdesc);
+			retval = leon_read_all_registers(target, 0);
 
-		retval = target_call_event_callbacks(target, TARGET_EVENT_HALTED);
-		if (retval!=ERROR_OK) {
-			LOG_ERROR("error while calling callback 'TARGET_EVENT_HALTED'");
-			return retval;
+			retval = target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+			if (retval!=ERROR_OK) {
+				LOG_ERROR("error while calling callback 'TARGET_EVENT_HALTED'");
+				return retval;
+			}
 		}
 
 		LEON_TM_MEASURE(bench, leon->loptime);

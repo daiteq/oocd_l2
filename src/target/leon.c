@@ -1996,7 +1996,7 @@ static const struct command_registration leon_command_handlers[] = {
 	{
 		.name = "leontype",
 		.handler = leon_handle_leontype_command,
-		.mode = COMMAND_EXEC,
+		.mode = COMMAND_CONFIG,
 		.help = "With an argument, set type of LEON processor by hand (can be dangerous)."
 		        "The second argument for 'l2mt' processor sets size of MT control block in bytes."
 		        "With or without argument, display current setting.",

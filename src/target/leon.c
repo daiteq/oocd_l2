@@ -2020,7 +2020,11 @@ COMMAND_HANDLER(leon_restart_command)
 			return ERROR_FAIL;
 		}
 		usleep(1);
-		retval = leon_write_register(tgt, LEON_RID_DSUCTRL, 0); // for safety, reset breaks in DSU control registers
+		if (!halt) {
+			retval = leon_write_register(tgt, LEON_RID_DSUCTRL, 0); // for safety, reset breaks in DSU control registers
+		} else {
+			retval = leon_write_register(tgt, LEON_RID_DSUCTRL, LEON_DSU_CTRL_BRK_NOW); // for safety, reset breaks in DSU control registers
+		}
 		if (retval!=ERROR_OK) break;
 		retval = leon_write_register(tgt, LEON_RID_DSUMTCTRL, halt ? LEON_DSU_MTCTRL_BRK : 0);
 		if (retval!=ERROR_OK) break;

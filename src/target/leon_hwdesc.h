@@ -259,6 +259,8 @@
 #define LEON_DSU_MTCTRL_RST          (1<<LEON_DSU_MTCTRL_RST_SHIFT)
 #define LEON_DSU_MTCTRL_BRK_SHIFT    (1)        /* sw dsu break */
 #define LEON_DSU_MTCTRL_BRK          (1<<LEON_DSU_MTCTRL_BRK_SHIFT)
+#define LEON_DSU_MTCTRL_F0E_SHIFT    (31)       /* end of family 0 */
+#define LEON_DSU_MTCTRL_F0E          (1<<LEON_DSU_MTCTRL_F0E_SHIFT)
 
 /* --- DSU Trap Register ---------------------------------------------------- */
 #define LEON_DSU_TRAP_TT_SHIFT    (4)        /* 8-bit SPARC trap type */

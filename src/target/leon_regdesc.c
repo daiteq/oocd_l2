@@ -290,6 +290,7 @@ const leon_reg_item_t leon_regdes_dsutrap[] = {
 const leon_reg_item_t leon_regdes_dsumtctrl[] = {
 	{ 1, "RST", "software CPU reset",         LEON_DSU_MTCTRL_RST, LEON_DSU_MTCTRL_RST_SHIFT},
 	{ 1, "BRK", "software DSU break",         LEON_DSU_MTCTRL_BRK, LEON_DSU_MTCTRL_BRK_SHIFT},
+	{ 1, "F0E", "end of F0",                  LEON_DSU_MTCTRL_F0E, LEON_DSU_MTCTRL_F0E_SHIFT},
 	{ 0, NULL, NULL, 0, 0}
 };
 

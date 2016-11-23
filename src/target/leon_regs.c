@@ -427,6 +427,18 @@ int leon_write_register(struct target *tgt, unsigned rid, uint32_t value)
 	return leon_set_core_reg(r, bval);
 }
 
+int leon_invalidate_register(struct target *tgt, unsigned rid)
+{
+	struct leon_common *leon = target_to_leon(tgt);
+	struct reg *r;
+
+	int ri = leon->rid_to_rdi[rid];
+	if (ri<0) return ERROR_FAIL; /* register not defined */
+	r = leon->regdesc->reg_list + ri;
+	r->valid = 0;
+	r->dirty = 0;
+	return ERROR_OK;
+}
 
 /* -------------------------------------------------------------------------- */
 int leon_reg_name2rid(struct target *tgt, const char *group, const char *name)

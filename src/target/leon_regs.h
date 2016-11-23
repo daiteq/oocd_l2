@@ -167,6 +167,7 @@ uint32_t *leon_get_ptrreg(struct target *tgt, unsigned rid);
 int leon_read_register(struct target *tgt, unsigned rid, bool force);
 int leon_read_all_registers(struct target *tgt, bool force);
 int leon_write_register(struct target *tgt, unsigned rid, uint32_t value);
+int leon_invalidate_register(struct target *tgt, unsigned rid);
 
 int leon_reg_name2rid(struct target *tgt, const char *group, const char *name);
 

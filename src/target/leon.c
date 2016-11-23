@@ -190,7 +190,8 @@ void leon_check_state_and_reason(struct target *tgt, enum target_state *pst, enu
 
 	if (tgt->state==TARGET_HALTED) {
 		struct leon_common *leon = target_to_leon(tgt);
-		if (leon->ltype!=LEON_TYPE_UNKNOWN)
+		// update all registers only if leon is not L2MT
+		if (leon->ltype!=LEON_TYPE_UNKNOWN && leon->ltype!=LEON_TYPE_L2MT)
 			leon_read_all_registers(tgt, 0);
 	}
 
@@ -2028,10 +2029,14 @@ COMMAND_HANDLER(leon_restart_command)
 		if (retval!=ERROR_OK) break;
 		retval = leon_write_register(tgt, LEON_RID_DSUMTCTRL, halt ? LEON_DSU_MTCTRL_BRK : 0);
 		if (retval!=ERROR_OK) break;
+		retval = leon_read_register(tgt, LEON_RID_DSUMTCTRL, 1);
+		if (retval!=ERROR_OK) break;
 		if (*pdsu & LEON_DSU_MTCTRL_RST) {
 			LOG_ERROR("SW Reset failed (2)");
 			return ERROR_FAIL;
 		}
+		// set register dsumtctrl as dirty to force re-read from hardware target
+		leon_invalidate_register(tgt, LEON_RID_DSUMTCTRL);
 		return ERROR_OK;
 	} while(0);
 	return ERROR_FAIL;
